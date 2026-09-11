@@ -9,7 +9,7 @@ Windows 11で動く、請求書PDF作成デスクトップアプリです。
 > Not intended as a general-purpose OSS project — shared here mainly
 > as a private update channel (see "アップデートの仕組み" below).
 
-現在のバージョン：**v1.1**
+現在のバージョン：**v1.2**
 
 
 ## できること
@@ -19,7 +19,7 @@ Windows 11で動く、請求書PDF作成デスクトップアプリです。
 - 請求元プロファイルの印字有無をチェックボックスで切り替え可能
 - 会社印の画像や振込先などの設定は自動で記憶され、次回以降入力し直す不要
 - 画面右上の「？使い方ヘルプ」ボタンと各入力欄のツールチップで操作をサポート
-- 画面右上の「🔄 アップデート確認」ボタンで、このリポジトリから最新版を取得・適用
+- 画面右上の「🔄 アップデート確認」ボタンで、GitHubの「Releases」から最新版を取得・適用
 - 入力データ（`invoice_config.json`）はアプリのフォルダとは別の場所
   （`%APPDATA%\InvoiceGeneratorTool\`）に保存されるため、
   このリポジトリに個人情報が混ざる事故を防いでいます
@@ -29,8 +29,7 @@ Windows 11で動く、請求書PDF作成デスクトップアプリです。
 
 ```
 InvoiceGen/
-├─ version.json                  ← アプリが更新確認時に読みに来るファイル（必須）
-├─ invoice_generator_tool.zip    ← 配布用ZIP。アプリが自動ダウンロードする実体（必須）
+├─ (Releases)                    ← GitHubのReleasesページに配布用ZIPを添付（version.jsonは不要）
 ├─ invoice_generator.py          ← アプリ本体（GUI）
 ├─ pdf_builder.py                ← 請求書PDFの描画処理
 ├─ updater.py                    ← アップデート機能の実装
@@ -56,14 +55,17 @@ Windows 11のPCで使う場合は、`invoice_generator_tool.zip` を展開して
 ## 開発者向け：アップデートの仕組み
 
 このリポジトリは**Public**です。母のPC上のアプリが、起動時ではなく
-「🔄 アップデート確認」ボタンを押したタイミングで、このリポジトリ直下の
-
-- `version.json`（バージョン番号とZIPのURLが書かれたJSON）
-- `invoice_generator_tool.zip`（アプリ本体一式）
-
-を確認しに行き、新しいバージョンがあればダウンロード・上書きします。
+「🔄 アップデート確認」ボタンを押したタイミングで、GitHubの
+**Releases機能**（無料・PublicでもPrivateでも使える標準機能）の
+「最新のRelease」情報を確認しに行き、そこに添付されたZIPより
+新しいバージョンなら、ダウンロードして上書きします。
 署名検証やロールバックなどは実装していない、素朴な仕組みです
 （このリポジトリへの書き込み権限を持つのは自分だけ、という前提で運用してください）。
+
+以前（v1.1まで）はリポジトリ直下に `version.json` を手で置く方式でしたが、
+v1.2からはGitHubのRelease機能に一本化し、`version.json`のメンテナンスは
+不要になりました（`updater.py`は両方式に対応しているので、必要なら
+旧方式に戻すこともできます）。
 
 **個人情報の混入対策**：母が入力する請求書の内容（振込先・会社情報など）は
 `invoice_config.json` に保存されますが、これはアプリのフォルダの外
@@ -82,8 +84,8 @@ PDFや設定ファイルが残っていても配布ZIPには含まれません�
 1. コードを直す
 2. `invoice_generator.py` の `APP_VERSION_NUM` を上げる
 3. `python make_release.py` を実行して配布用ZIPを作り直す
-4. `version.json` の `version` と `notes` を更新する
-5. `version.json` と新しい `invoice_generator_tool.zip` をこのリポジトリに上書きコミットする
+4. GitHubの「Releases」→「Draft a new release」で新しいタグ（例：`v1.3`）を作り、
+   変更点を本文に書いて、`invoice_generator_tool.zip` を添付して公開する
 
 
 ## 使用技術

@@ -1,5 +1,5 @@
 {
-  "version": "1.1",
+  "version": "1.2",
   "zip_url": "https://raw.githubusercontent.com/uhgm/InvoiceGen/main/invoice_generator_tool.zip",
-  "notes": "請求元プロファイル（住所・名称・代表者名・電話番号）を右上にまとめ、会社印を請求元の名称に重ねるように変更。請求元情報の表示/非表示を切り替えるチェックボックスを追加。"
+  "notes": "アップデートの仕組みをGitHubのReleases機能ベースに変更しました。次回からはversion.jsonの更新は不要になります（詳しくはRELEASE_WORKFLOW.txtを参照）。"
 }
