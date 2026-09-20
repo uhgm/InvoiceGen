@@ -1,0 +1,66 @@
+Developer notes (for you, not for your mother)
+================================================
+
+Update mechanism
+-----------------
+The "🔄 アップデート確認" button in the app checks GitHub's Releases API
+(free, no cost, works on public repos with no auth needed), and if a
+newer tagged release is found, downloads its attached zip asset and
+applies it. Intentionally simple (no signing, no rollback, no background
+auto-checking).
+
+Full setup + release instructions are written at the top of updater.py
+in this folder — read that docstring, it's the source of truth. The
+step-by-step release checklist is in RELEASE_WORKFLOW.txt.
+
+Quick summary:
+  1. Public GitHub repo: uhgm/InvoiceGen (already set up).
+  2. UPDATE_MANIFEST_URL in invoice_generator.py is already set to:
+       https://api.github.com/repos/uhgm/InvoiceGen/releases/latest
+  3. To ship an update: bump APP_VERSION_NUM, run `python make_release.py`,
+     then on GitHub go to Releases → Draft a new release → tag it
+     (e.g. v1.3) → attach invoice_generator_tool.zip → Publish.
+     No version.json to hand-edit anymore.
+
+(Old version.json-based hosting still works as a fallback — updater.py
+detects which format a given manifest_url returns — but there's no
+reason to use it now that Releases is wired up.)
+
+Where your mother's data lives (important — read this)
+--------------------------------------------------------
+invoice_config.json (her saved settings: seal image path, bank info,
+recipient defaults, etc.) is NOT stored inside this app folder anymore.
+It lives in her Windows user profile instead:
+    %APPDATA%\InvoiceGeneratorTool\invoice_config.json
+(usually C:\Users\<her account>\AppData\Roaming\InvoiceGeneratorTool\)
+
+This was a deliberate design decision: it means this app folder can
+never accidentally contain her real bank details / business info, even
+if you carelessly zip up "the folder as it is running on her PC" and
+push it to a public repo. The two live in physically separate places.
+
+If she was already using an older version where the config sat next to
+invoice_generator.py, the app auto-migrates it to the new location the
+first time the updated version runs (see _migrate_old_config_if_needed
+in invoice_generator.py) — she won't lose her settings.
+
+Building a release safely
+---------------------------
+Don't just zip this folder by hand. Run:
+
+    python make_release.py
+
+This builds invoice_generator_tool.zip using an explicit whitelist of
+files (code + assets only) — it can never include invoice_config.json,
+a stray *.pdf, or a seal image you were using to test locally, even if
+one of those happens to be sitting in this folder when you run it.
+There's also a .gitignore here for the same reason, in case you track
+this folder with git directly.
+
+Notes / limitations (deliberately not handled, per your "doesn't need
+to be robust" request):
+  - No checksum/signature verification of the downloaded zip — the repo
+    should stay public-but-trusted (only you push to it).
+  - The app just closes after applying an update; she double-clicks the
+    desktop icon again to relaunch. No fancy self-restart.
+  - No delta updates — every update re-downloads the whole zip.
