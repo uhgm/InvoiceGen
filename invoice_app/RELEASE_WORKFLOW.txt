@@ -1,0 +1,78 @@
+====================================================
+  リリース作業フロー（開発者専用・母上は見なくてOK）
+====================================================
+
+v1.2から、GitHubの「Releases」機能を使う方式に変更しました。
+（無料機能です。以前の version.json を手で編集する方式より楽になります）
+
+
+----------------------------------------------------
+【初回セットアップ（v1.2で完了済み）】
+----------------------------------------------------
+  1. リポジトリ（uhgm/InvoiceGen）はPublicのまま
+  2. invoice_generator.py の UPDATE_MANIFEST_URL は下記の形に設定済み：
+       https://api.github.com/repos/uhgm/InvoiceGen/releases/latest
+     （GitHubが自動的に用意している「最新のRelease情報」を返すURL。
+      これはあなたが何かファイルを作って置く必要はありません）
+
+  もう version.json をメンテナンスする必要はありません。
+  （リポジトリに残っていても害はないので、消さなくても大丈夫です）
+
+
+----------------------------------------------------
+【アップデートを配布したいとき】
+----------------------------------------------------
+  ① invoice_generator.py などのファイルを、いつも通り手元で修正する
+
+  ② invoice_generator.py の中の APP_VERSION_NUM を上げる
+       例： "1.2"  →  "1.3"
+
+  ③ ターミナルで次を実行し、配布用ZIPを作り直す
+       python make_release.py
+     → このフォルダの中に invoice_generator_tool.zip が新しく作られる
+
+  ④ GitHubの InvoiceGen リポジトリページを開く
+       → 右側の「Releases」をクリック
+       → 「Draft a new release」（初回は「Create a new release」）
+
+  ⑤ 「Choose a tag」で新しいタグ名を入力して作る
+       例： v1.3　　（先頭に v をつける）
+
+  ⑥ タイトルを入れる（例： v1.3）
+
+  ⑦ 説明欄（本文）に、今回の変更点を書く
+       例： 会社印の位置を少し調整しました
+
+  ⑧ 一番下の「Attach binaries by dropping them here...」の枠に、
+     ③で作った invoice_generator_tool.zip をドラッグ&ドロップでアップロード
+
+  ⑨ 「Publish release」を押して公開する
+
+  ⑩ 完了。あとは事務所側で母上に
+     「🔄 アップデート確認」ボタンを押してもらうだけ。
+
+
+----------------------------------------------------
+【チェックリスト（コピペして使ってください）】
+----------------------------------------------------
+□ invoice_generator.py の APP_VERSION_NUM を上げた
+□ python make_release.py を実行して新しいZIPを作った
+□ GitHubで「Draft a new release」を開いた
+□ 新しいタグ（v1.3 など、②と同じ番号に v をつけたもの）を作った
+□ 変更点を本文に書いた
+□ invoice_generator_tool.zip を添付（Attach binaries）した
+□ 「Publish release」を押した
+□ https://github.com/uhgm/InvoiceGen/releases/latest
+   をブラウザで開いて、新しいバージョンが表示されているか確認した
+
+
+----------------------------------------------------
+【参考：旧方式（version.json）について】
+----------------------------------------------------
+v1.1以前は version.json を手で編集する方式でした。
+updater.py はこの旧方式にも対応しているので、もし何かの理由で
+Releases機能が使えない場合は、以前と同じやり方（version.json の
+"version"と"zip_url"を書き換えて、invoice_generator_tool.zipと一緒に
+リポジトリ直下にコミットする）に戻すこともできます。
+その場合は invoice_generator.py の UPDATE_MANIFEST_URL を
+version.json の「Raw」URLに書き換えてください。

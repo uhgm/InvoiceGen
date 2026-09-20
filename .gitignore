@@ -1,0 +1,7 @@
+# invoice_app/build_release_zip.py が展開・生成する成果物フォルダ
+# （invoice_app/ 内のソースと重複するため、リポジトリには含めない）
+InvoiceGeneratorTool/
+
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,16 @@
+# 個人情報・生成物は絶対にコミットしない
+invoice_config.json
+*.pdf
+__pycache__/
+*.pyc
+
+# テスト用に置いてしまいがちなもの
+seal*.png
+seal*.jpg
+hanko*.png
+hanko*.jpg
+
+# make_release.py が作るビルド成果物（GitHub Releasesにアセットとして添付するので、
+# リポジトリには含めない）
+invoice_generator_tool.zip
+.venv/
