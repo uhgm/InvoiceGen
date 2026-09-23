@@ -14,3 +14,12 @@ hanko*.jpg
 # リポジトリには含めない）
 invoice_generator_tool.zip
 .venv/
+
+# build_deb.sh / build_exe.bat が作るビルド成果物・作業フォルダ
+# （こちらもGitHub Releasesにアセットとして添付するだけで、リポジトリには含めない）
+.build-venv/
+build/
+dist/
+*.spec
+*.deb
+

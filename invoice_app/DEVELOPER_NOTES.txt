@@ -44,6 +44,78 @@ invoice_generator.py, the app auto-migrates it to the new location the
 first time the updated version runs (see _migrate_old_config_if_needed
 in invoice_generator.py) — she won't lose her settings.
 
+Linux support
+-------------
+Same source tree runs on Linux now, no separate codebase:
+  - 01_setup.sh / 02_start_invoice_tool.sh / create_shortcut.sh are the
+    Linux equivalents of the .bat/.vbs files, and both sets ship in the
+    same invoice_generator_tool.zip (make_release.py's whitelist includes
+    both) — the updater just re-applies whichever files are in the zip,
+    so one release covers both platforms.
+  - 01_setup.sh creates the venv with --system-site-packages, because
+    tkinter isn't pip-installable — it has to already be on the system
+    (python3-tk / python3-tkinter / tk, depending on distro). The script
+    checks for it and tells the user the apt/dnf/pacman command instead
+    of trying to sudo anything itself.
+  - Config storage already used XDG_CONFIG_HOME / ~/.config as the Linux
+    branch of _get_user_data_dir() before any of this — that part needed
+    no changes, it was cross-platform from the start.
+  - UI font: the Tkinter side used to hardcode font=("Meiryo", ...)
+    everywhere, which is a Windows-only font name — on Linux/Mac it just
+    renders as tofu boxes if nothing named "Meiryo" exists. Fixed by
+    picking the family at runtime (_pick_ui_font_family, called once in
+    main() after the Tk root exists) from a priority list, and replacing
+    every literal "Meiryo" with the module-level UI_FONT_FAMILY. As a
+    last resort on Linux with zero CJK fonts installed at all,
+    _ensure_bundled_font_on_linux() copies the already-bundled
+    assets/BIZUDPGothic-{Regular,Bold}.ttf (same font pdf_builder.py
+    embeds in the PDFs — see the font/readability note below) into
+    ~/.local/share/fonts/ and runs fc-cache — per-user only, never
+    touches /usr/share/fonts, same "never write outside the user's own
+    folder" principle as the config storage. Best-effort / silently
+    gives up on failure, same spirit as everything else here.
+
+Font / readability pass (PDF output)
+-------------------------------------
+Switched the embedded PDF font from IPAGothic to BIZ UDPGothic
+(Morisawa, SIL OFL 1.1, pulled from
+https://github.com/googlefonts/morisawa-biz-ud-gothic). It's the
+"universal design" Japanese font bundled with Windows 10/11 — bigger
+counters, disambiguated look-alike characters (e.g. 3/8, ソ/ン), meant
+to be easier to read for older readers and people with dyslexia/low
+vision. Both Regular and Bold weights are embedded now
+(assets/BIZUDPGothic-{Regular,Bold}.ttf), so pdf_builder.py uses a real
+bold (FONT_BOLD) instead of the old "draw the same glyph four times
+offset by half a point" fake-bold trick (draw_bold_centred used to do
+this; it's gone now, _draw_title() just sets the bold font directly).
+
+Also on request: bumped font sizes and table row heights throughout
+both build_invoice_pdf() and build_receipt_pdf() (title, destination/
+issuer blocks, table headers/cells, totals, remarks, bank table), and
+added a light accent-color system — invoice = blue (COLOR_INVOICE_*),
+receipt = green (COLOR_RECEIPT_*), matching the button colors already
+used in the app's own UI. Color is only used for structural anchors
+(title, table header background tint, the total amount) — body text
+and table data stay solid black, since colored body text is *worse*
+for readability than good old high-contrast black, especially at
+small sizes.
+
+One gotcha if you touch the item table again: the column widths in
+build_invoice_pdf() (単価/金額/消費税 especially) were sized against
+actual c.stringWidth() measurements up to ￥9,999,999 at the new font
+size — if you bump the table font size again, re-check those or large
+amounts will visually overlap the column borders.
+
+The receipt (build_receipt_pdf) was also restructured to match the
+invoice's header layout (title → No./date → destination block left +
+issuer block right, via the same _draw_destination_block/
+_draw_issuer_block helpers) instead of showing the issuer info way
+down near the bottom like before — purely a layout change, no new
+data fields except that the receipt now also shows dest_zip/dest_addr/
+dest_tel/dest_fax (same fields the invoice already collects; the UI
+already has these widgets, _collect_receipt_data() just wasn't reading
+them before).
+
 Building a release safely
 ---------------------------
 Don't just zip this folder by hand. Run:

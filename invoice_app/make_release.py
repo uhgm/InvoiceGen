@@ -38,10 +38,16 @@ INCLUDE_FILES = [
     "pdf_builder.py",
     "updater.py",
     "requirements.txt",
+    # Windows用
     "01_setup.bat",
     "02_start_invoice_tool.bat",
     "create_shortcut.vbs",
     "setup_guide.txt",
+    # Linux用（Windowsと中身は共通なので、同じZIPに両方のスクリプトを入れている）
+    "01_setup.sh",
+    "02_start_invoice_tool.sh",
+    "create_shortcut.sh",
+    "setup_guide_linux.txt",
 ]
 INCLUDE_DIRS = [
     "assets",

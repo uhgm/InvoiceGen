@@ -8,7 +8,7 @@
 ■ 使い方（かんたん3ステップ）
   1. 「宛先（請求する相手）」の欄を入力する
   2. 「請求する内容（品目）」の欄を入力する（自動で金額の合計が計算されます）
-  3. 画面いちばん下の「PDFを作成する」ボタンを押す
+  3. 画面いちばん下の「📄 請求書PDFを作成する」ボタンを押す
 
 分からなくなったら、画面右上の「使い方ヘルプ」ボタンをいつでも押してください。
 """
@@ -16,11 +16,13 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import traceback
 import datetime
 from io import BytesIO
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, messagebox, filedialog
 
 try:
@@ -43,6 +45,19 @@ if getattr(sys, "frozen", False):
     APP_DIR = os.path.dirname(sys.executable)
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _resource_dir():
+    """同梱リソース（assetsフォルダ等）を探すためのフォルダ。
+
+    PyInstallerでexe化した場合、sys.executableの場所（APP_DIR）と、
+    同梱データが実際に展開される場所（sys._MEIPASS）は一致しないことが
+    ある（特にonefile形式のとき）。そのため同梱リソースを探すときは
+    APP_DIRではなくこちらを使う。
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return APP_DIR
 
 
 def _get_user_data_dir():
@@ -86,7 +101,78 @@ def _migrate_old_config_if_needed():
 
 _migrate_old_config_if_needed()
 
-APP_VERSION_NUM = "1.3"
+# ------------------------------------------------------------------
+# 画面（Tkinter）用の日本語フォント選び
+# ------------------------------------------------------------------
+# 「Meiryo」はWindows専用のフォント名で、Linux/Macにはそのままでは
+# 存在しない。決め打ちのままだと文字が四角（豆腐）で表示されてしまうため、
+# 実際にこのPCで使えるフォントの中から日本語対応のものを選ぶ。
+#
+# 「BIZ UDPGothic」を最優先にしているのは、高齢の方にも読みやすいよう
+# PDF側（pdf_builder.py）でも採用しているユニバーサルデザインフォントで、
+# 画面と印刷物の書体を揃えるため（Windows 10/11には標準搭載）。
+_JP_FONT_CANDIDATES = [
+    "BIZ UDPGothic", "Meiryo", "Yu Gothic UI", "Yu Gothic", "MS PGothic",
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", "IPAPGothic",
+    "TakaoPGothic", "VL PGothic", "Droid Sans Japanese",
+]
+
+# main() の中で、実際に使えるフォント名に置き換わる（既定値はWindows向け）。
+UI_FONT_FAMILY = "Meiryo"
+
+
+def _ensure_bundled_font_on_linux():
+    """Linuxで日本語フォントが1つも無いPCのために、同梱のBIZ UDPGothicを
+    ユーザー個人のフォントフォルダにだけインストールする（sudo不要・失敗しても無視）。
+
+    ★ここも『個人フォルダーと分ける設計』と同じ考え方：
+    システム全体（/usr/share/fonts等）には一切書き込まず、
+    ~/.local/share/fonts というユーザー専用の場所だけを使う。
+    こうしておけば、他のユーザーやシステム設定に影響を与えない。
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        resource_dir = _resource_dir()
+        user_font_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "fonts")
+        installed_any = False
+        for fname, dest_name in [
+            ("BIZUDPGothic-Regular.ttf", "invoice-generator-tool-bizudpgothic-regular.ttf"),
+            ("BIZUDPGothic-Bold.ttf", "invoice-generator-tool-bizudpgothic-bold.ttf"),
+        ]:
+            src = os.path.join(resource_dir, "assets", fname)
+            dest = os.path.join(user_font_dir, dest_name)
+            if not os.path.exists(src) or os.path.exists(dest):
+                continue
+            os.makedirs(user_font_dir, exist_ok=True)
+            shutil.copy2(src, dest)
+            installed_any = True
+
+        if installed_any:
+            fc_cache = shutil.which("fc-cache")
+            if fc_cache:
+                subprocess.run(
+                    [fc_cache, "-f", user_font_dir], timeout=15,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+    except Exception:
+        pass  # 失敗しても起動自体は続ける（最悪、文字が四角になるだけ）
+
+
+def _pick_ui_font_family(root):
+    """このPCで実際に使える日本語フォントを候補リストから選ぶ。"""
+    try:
+        available = set(tkfont.families(root))
+    except Exception:
+        available = set()
+    for name in _JP_FONT_CANDIDATES:
+        if name in available:
+            return name
+    return "TkDefaultFont"
+
+
+APP_VERSION_NUM = "1.4"
 APP_VERSION = f"Version {APP_VERSION_NUM}"
 APP_CREDIT = "ClaudeCord & 井上"
 APP_SUPPORT_EMAIL = "satoshi29333104@gmail.com"
@@ -104,6 +190,7 @@ DEFAULT_CONFIG = {
     "issuer_tel": "",
     "issuer_fax": "",
     "show_issuer_block": True,
+    "show_note_column": True,
     "bank_holder_line1": "",
     "bank_holder_line2": "",
     "banks": [
@@ -163,7 +250,7 @@ HELP_TEXT = """【使い方ガイド】
   ① 上から順番に、空いている欄を埋めていきます。
   ② 「品目」の表に、請求する内容（品名・数量・単価）を入力します。
      金額と合計金額は自動で計算されるので、電卓は不要です。
-  ③ 一番下の「PDFを作成する」ボタンを押すと、保存する場所を
+  ③ 一番下の「📄 請求書PDFを作成する」ボタンを押すと、保存する場所を
      聞かれるので、分かりやすい場所（例：デスクトップ）を選んで
      保存してください。
 
@@ -210,7 +297,7 @@ HELP_TEXT = """【使い方ガイド】
      「🔄 今すぐ更新」ボタンを押してください。
 
   Q. PDFはどこに保存されるの？
-  A. 「PDFを作成する」ボタンを押したときに出てくる画面で、
+  A. 「📄 請求書PDFを作成する」ボタンを押したときに出てくる画面で、
      好きな保存場所とファイル名を選べます。
 
   Q. 操作を間違えて、アプリがおかしくなった
@@ -242,7 +329,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(
             tw, text=self.text, justify="left", background="#ffffe0",
-            relief="solid", borderwidth=1, font=("Meiryo", 10), padx=6, pady=4,
+            relief="solid", borderwidth=1, font=(UI_FONT_FAMILY, 10), padx=6, pady=4,
             wraplength=360,
         )
         label.pack()
@@ -393,13 +480,13 @@ class InvoiceApp:
 
     # ---------------------------------------------------------- UI 構築
     def _build_layout(self):
-        big_font = ("Meiryo", 11)
-        header_font = ("Meiryo", 14, "bold")
+        big_font = (UI_FONT_FAMILY, 11)
+        header_font = (UI_FONT_FAMILY, 14, "bold")
         self.root.option_add("*Font", big_font)
 
         top = ttk.Frame(self.root, padding=10)
         top.pack(fill="x")
-        ttk.Label(top, text="請求書かんたん作成ツール", font=("Meiryo", 18, "bold")).pack(side="left")
+        ttk.Label(top, text="請求書かんたん作成ツール", font=(UI_FONT_FAMILY, 18, "bold")).pack(side="left")
         ttk.Button(top, text="？ 使い方ヘルプ", command=self.show_help).pack(side="right")
         ttk.Button(top, text="🔄 アップデート確認", command=self.check_for_updates).pack(side="right", padx=(0, 8))
 
@@ -517,10 +604,19 @@ class InvoiceApp:
 
         # ---- ④ 品目 ----
         sec4 = self._section(body, "④ 請求する内容（品目）", "請求する内容を1行ずつ入力してください。金額は自動計算されます。")
+
+        self.show_note_column_var = tk.BooleanVar(value=True)
+        show_note_chk = ttk.Checkbutton(
+            sec4, text="請求書の表に「摘要」欄を表示する（チェックを外すと表から摘要欄が消え、他の列が広くなります）",
+            variable=self.show_note_column_var, command=self._schedule_preview_update,
+        )
+        show_note_chk.pack(anchor="w", pady=(0, 6))
+        ToolTip(show_note_chk, "摘要欄を使わない場合は、チェックを外すと表がすっきりして見やすくなります。\n入力済みの摘要欄の内容が消えるわけではありません。")
+
         header_row = ttk.Frame(sec4)
         header_row.pack(anchor="w")
         for text, w in [("日付", 10), ("品名", 26), ("数量", 6), ("単価", 10), ("金額(自動)", 10), ("消費税", 8), ("摘要", 14)]:
-            ttk.Label(header_row, text=text, width=w, font=("Meiryo", 10, "bold")).pack(side="left", padx=2)
+            ttk.Label(header_row, text=text, width=w, font=(UI_FONT_FAMILY, 10, "bold")).pack(side="left", padx=2)
         self.items_frame = ttk.Frame(sec4)
         self.items_frame.pack(anchor="w", fill="x")
         self.item_rows = []
@@ -530,9 +626,9 @@ class InvoiceApp:
 
         total_row = ttk.Frame(sec4)
         total_row.pack(anchor="e", pady=(8, 0))
-        ttk.Label(total_row, text="税込合計金額：", font=("Meiryo", 12, "bold")).pack(side="left")
+        ttk.Label(total_row, text="税込合計金額：", font=(UI_FONT_FAMILY, 12, "bold")).pack(side="left")
         self.total_var = tk.StringVar(value="￥0")
-        ttk.Label(total_row, textvariable=self.total_var, font=("Meiryo", 14, "bold"), foreground="#b00020").pack(side="left")
+        ttk.Label(total_row, textvariable=self.total_var, font=(UI_FONT_FAMILY, 14, "bold"), foreground="#b00020").pack(side="left")
 
         # ---- ⑤ 備考欄 ----
         sec5 = self._section(body, "⑤ 備考欄（任意）", "伝えたいことがあれば自由に入力してください（空欄でも構いません）。")
@@ -547,7 +643,7 @@ class InvoiceApp:
         bank_header = ttk.Frame(sec6)
         bank_header.pack(anchor="w", pady=(6, 0))
         for text, w in [("金融機関名", 16), ("支店名", 10), ("店番", 6), ("口座種類", 6), ("口座番号", 12)]:
-            ttk.Label(bank_header, text=text, width=w, font=("Meiryo", 10, "bold")).pack(side="left", padx=2)
+            ttk.Label(bank_header, text=text, width=w, font=(UI_FONT_FAMILY, 10, "bold")).pack(side="left", padx=2)
         self.banks_frame = ttk.Frame(sec6)
         self.banks_frame.pack(anchor="w", fill="x")
         self.bank_rows = []
@@ -593,29 +689,36 @@ class InvoiceApp:
         ttk.Separator(self.root).pack(fill="x")
         bottom = ttk.Frame(self.root, padding=14)
         bottom.pack(fill="x")
+        bottom.columnconfigure(0, weight=1)
+        bottom.columnconfigure(1, weight=1)
+
+        invoice_col = ttk.Frame(bottom)
+        invoice_col.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         make_btn = tk.Button(
-            bottom, text="📄 PDFを作成する", font=("Meiryo", 16, "bold"),
+            invoice_col, text="📄 請求書PDFを作成する", font=(UI_FONT_FAMILY, 14, "bold"),
             bg="#1a73e8", fg="white", activebackground="#1558b0", activeforeground="white",
             height=2, command=self.on_create_pdf,
         )
         make_btn.pack(fill="x")
         ttk.Label(
-            bottom,
+            invoice_col,
             text="ボタンを押すと、PDFの保存場所を選ぶ画面が開きます。分かりやすい場所（デスクトップなど）を選んでください。",
-            foreground="#666",
-        ).pack(pady=(4, 0))
+            foreground="#666", wraplength=260, justify="left",
+        ).pack(pady=(4, 0), fill="x")
 
+        receipt_col = ttk.Frame(bottom)
+        receipt_col.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         receipt_btn = tk.Button(
-            bottom, text="🧾 領収証PDFを作成する", font=("Meiryo", 14, "bold"),
+            receipt_col, text="🧾 領収証PDFを作成する", font=(UI_FONT_FAMILY, 14, "bold"),
             bg="#188038", fg="white", activebackground="#0f6b2c", activeforeground="white",
             height=2, command=self.on_create_receipt,
         )
-        receipt_btn.pack(fill="x", pady=(10, 0))
+        receipt_btn.pack(fill="x")
         ttk.Label(
-            bottom,
+            receipt_col,
             text="今入力している内容（宛先・金額・発行元など）をもとに、領収証PDFを作成します。請求書PDFとは別に、必要な分だけ作成できます。",
-            foreground="#666",
-        ).pack(pady=(4, 0))
+            foreground="#666", wraplength=260, justify="left",
+        ).pack(pady=(4, 0), fill="x")
 
         # ---- フッター（バージョン・クレジット表記） ----
         ttk.Separator(self.root).pack(fill="x")
@@ -624,7 +727,7 @@ class InvoiceApp:
         ttk.Label(
             footer,
             text=f"{APP_VERSION}　|　開発：{APP_CREDIT}　|　サポート：{APP_SUPPORT_EMAIL}",
-            foreground="#999", font=("Meiryo", 9),
+            foreground="#999", font=(UI_FONT_FAMILY, 9),
             anchor="center", justify="center",
         ).pack(fill="x")
 
@@ -638,7 +741,7 @@ class InvoiceApp:
     def _build_preview_pane(self, parent):
         header = ttk.Frame(parent, padding=(10, 10, 10, 4))
         header.pack(fill="x")
-        ttk.Label(header, text="📄 プレビュー", font=("Meiryo", 14, "bold")).pack(side="left")
+        ttk.Label(header, text="📄 プレビュー", font=(UI_FONT_FAMILY, 14, "bold")).pack(side="left")
 
         if not PDF_PREVIEW_AVAILABLE:
             ttk.Label(
@@ -683,7 +786,7 @@ class InvoiceApp:
         self.preview_image_label = tk.Label(
             self.preview_canvas, bg="white",
             text="ここに請求書／領収証のプレビューが表示されます",
-            fg="#999", font=("Meiryo", 11),
+            fg="#999", font=(UI_FONT_FAMILY, 11),
         )
         self.preview_canvas.create_window((0, 0), window=self.preview_image_label, anchor="nw")
 
@@ -817,6 +920,7 @@ class InvoiceApp:
         self.issuer_representative.set(cfg.get("issuer_representative", ""))
         self.issuer_tel.set(cfg.get("issuer_tel", ""))
         self.show_issuer_var.set(bool(cfg.get("show_issuer_block", True)))
+        self.show_note_column_var.set(bool(cfg.get("show_note_column", True)))
         self.bank_holder1.set(cfg.get("bank_holder_line1", ""))
         self.bank_holder2.set(cfg.get("bank_holder_line2", ""))
         self.remarks_text.insert("1.0", cfg.get("remarks_default", ""))
@@ -849,6 +953,7 @@ class InvoiceApp:
         self.cfg["issuer_representative"] = self.issuer_representative.get().strip()
         self.cfg["issuer_tel"] = self.issuer_tel.get().strip()
         self.cfg["show_issuer_block"] = bool(self.show_issuer_var.get())
+        self.cfg["show_note_column"] = bool(self.show_note_column_var.get())
         self.cfg["bank_holder_line1"] = self.bank_holder1.get().strip()
         self.cfg["bank_holder_line2"] = self.bank_holder2.get().strip()
         self.cfg["remarks_default"] = self.remarks_text.get("1.0", "end").strip()
@@ -925,7 +1030,7 @@ class InvoiceApp:
 
         list_frame = ttk.Frame(win)
         list_frame.pack(fill="both", expand=True, padx=12)
-        listbox = tk.Listbox(list_frame, font=("Meiryo", 11))
+        listbox = tk.Listbox(list_frame, font=(UI_FONT_FAMILY, 11))
         listbox.pack(side="left", fill="both", expand=True)
         scroll = ttk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
         scroll.pack(side="right", fill="y")
@@ -980,7 +1085,7 @@ class InvoiceApp:
         win = tk.Toplevel(self.root)
         win.title("使い方ヘルプ")
         win.geometry("560x560")
-        text = tk.Text(win, wrap="word", font=("Meiryo", 11), padx=12, pady=12)
+        text = tk.Text(win, wrap="word", font=(UI_FONT_FAMILY, 11), padx=12, pady=12)
         text.insert("1.0", HELP_TEXT)
         text.config(state="disabled")
         text.pack(fill="both", expand=True)
@@ -1017,6 +1122,21 @@ class InvoiceApp:
         notes = info.get("notes", "")
         if updater.parse_version(remote_v) <= updater.parse_version(APP_VERSION_NUM):
             messagebox.showinfo("お知らせ", f"お使いの{APP_VERSION}は最新です。")
+            return
+
+        if getattr(sys, "frozen", False):
+            # exe/deb版は、ZIPを上書きする今の更新方式が使えない
+            # （フォルダの中身をまるごと入れ替える前提の仕組みのため）。
+            # 新しいインストーラーをダウンロードしてもらうよう案内する。
+            msg = f"新しいバージョン（{remote_v}）が公開されています。\n"
+            if notes:
+                msg += f"\n【更新内容】\n{notes}\n"
+            msg += (
+                "\nこの版（exe/deb）は自動更新に対応していないため、"
+                "配布ページから新しいインストーラーをダウンロードして、"
+                "入れ直してください。"
+            )
+            messagebox.showinfo("新しいバージョンがあります", msg)
             return
 
         msg = f"新しいバージョン（{remote_v}）が見つかりました。\n今すぐ更新しますか？"
@@ -1102,6 +1222,7 @@ class InvoiceApp:
             "issuer_representative": self.issuer_representative.get().strip(),
             "issuer_tel": self.issuer_tel.get().strip(),
             "show_issuer_block": bool(self.show_issuer_var.get()),
+            "show_note_column": bool(self.show_note_column_var.get()),
             "seal_path": self.cfg.get("seal_image_path", ""),
             "items": items,
             "total": total,
@@ -1112,12 +1233,19 @@ class InvoiceApp:
         }
 
     def _collect_receipt_data(self, receipt_date):
+        items = [r.as_dict() for r in self.item_rows if not r.is_blank()]
         total = sum(r.get_amount() + r.get_tax() for r in self.item_rows)
         tax_total = sum(r.get_tax() for r in self.item_rows)
         return {
             "issue_date": receipt_date,
             "invoice_number": self.invoice_number.get().strip(),
             "dest_name": self.dest_name.get().strip(),
+            "dest_zip": self.dest_zip.get().strip(),
+            "dest_addr": self.dest_addr.get().strip(),
+            "dest_tel": self.dest_tel.get().strip(),
+            "dest_fax": self.dest_fax.get().strip(),
+            "items": items,
+            "show_note_column": bool(self.show_note_column_var.get()),
             "total": total,
             "tax_total": tax_total,
             "remarks": self.receipt_note.get().strip() or "お品代",
@@ -1257,7 +1385,10 @@ class InvoiceApp:
 
 
 def main():
+    _ensure_bundled_font_on_linux()
     root = tk.Tk()
+    global UI_FONT_FAMILY
+    UI_FONT_FAMILY = _pick_ui_font_family(root)
     try:
         style = ttk.Style()
         if "vista" in style.theme_names():
