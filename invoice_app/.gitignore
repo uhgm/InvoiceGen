@@ -22,4 +22,5 @@ build/
 dist/
 *.spec
 *.deb
+invoice-generator-tool-windows-x64.zip
 
