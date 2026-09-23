@@ -13,6 +13,18 @@ Full setup + release instructions are written at the top of updater.py
 in this folder — read that docstring, it's the source of truth. The
 step-by-step release checklist is in RELEASE_WORKFLOW.txt.
 
+★ Since v1.4, releases also carry the compiled binaries (Windows exe
+zip, Linux .deb) alongside the source zip — see "Compiled binary
+builds" below. check_for_update() in updater.py deliberately looks for
+an asset literally named invoice_generator_tool.zip (falling back to
+"first .zip" only if that exact name is missing) — it must never just
+grab "the first .zip", because GitHub returns release assets sorted
+alphabetically and "invoice-generator-tool-windows-x64.zip" (hyphen)
+sorts before "invoice_generator_tool.zip" (underscore). Getting this
+wrong means the in-app updater downloads the Windows exe bundle and
+splats it into a plain-Python install. If you ever rename the source
+zip, update the exact-match string in updater.py too.
+
 Quick summary:
   1. Public GitHub repo: uhgm/InvoiceGen (already set up).
   2. UPDATE_MANIFEST_URL in invoice_generator.py is already set to:
@@ -128,6 +140,29 @@ a stray *.pdf, or a seal image you were using to test locally, even if
 one of those happens to be sitting in this folder when you run it.
 There's also a .gitignore here for the same reason, in case you track
 this folder with git directly.
+
+Compiled binary builds (Windows exe / Linux .deb)
+----------------------------------------------------
+These are optional extras for people who'd rather not install Python at
+all — the plain source zip + 01_setup is still the main distribution
+path and what the in-app updater uses (see the warning above).
+
+  - Linux .deb: run `bash build_deb.sh` on an actual Linux machine (needs
+    dpkg-deb, python3-venv, python3-tk). Produces
+    invoice-generator-tool_<version>_amd64.deb. PyInstaller doesn't
+    cross-compile, so this can't be built for Windows from Linux or
+    vice versa.
+  - Windows exe: run `build_exe.bat` on an actual Windows machine.
+    Produces dist\invoice-generator-tool\ (a folder — ship the whole
+    thing, not just the .exe, since PyInstaller's --onedir puts all the
+    DLLs/data in a sibling _internal\ folder). Zip that folder up
+    yourself for the release asset.
+
+Attach both to the GitHub Release alongside invoice_generator_tool.zip
+when you have them (`gh release upload v1.x <files...>` or drag them
+into the same "Attach binaries" box as the source zip). Never make the
+source zip's name anything other than exactly invoice_generator_tool.zip
+(see the updater.py warning above).
 
 Notes / limitations (deliberately not handled, per your "doesn't need
 to be robust" request):

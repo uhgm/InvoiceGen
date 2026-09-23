@@ -90,12 +90,22 @@ def check_for_update(manifest_url: str) -> dict:
         # --- GitHub Releases APIの形式 ---
         version = str(data["tag_name"]).lstrip("vV")
         notes = data.get("body") or ""
+        # v1.4から、Releaseには「ソース一式のZIP」以外に、Windows exe用ZIPや
+        # Linux用.debも一緒に添付するようになった。この自動更新の仕組みは
+        # ソース一式（.pyファイル）を上書きする前提のため、必ず
+        # invoice_generator_tool.zip という名前のものだけを対象にする
+        # （名前で見つからない場合のみ、後方互換として最初の.zipにフォールバック）。
+        assets = data.get("assets", [])
         zip_url = None
-        for asset in data.get("assets", []):
-            name = asset.get("name", "")
-            if name.lower().endswith(".zip"):
+        for asset in assets:
+            if asset.get("name", "") == "invoice_generator_tool.zip":
                 zip_url = asset.get("browser_download_url")
                 break
+        if not zip_url:
+            for asset in assets:
+                if asset.get("name", "").lower().endswith(".zip"):
+                    zip_url = asset.get("browser_download_url")
+                    break
         if not zip_url:
             raise UpdateError("最新のReleaseにZIPファイルが添付されていません")
         return {"version": version, "zip_url": zip_url, "notes": notes}
