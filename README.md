@@ -9,7 +9,7 @@ Windows 11で動く、請求書PDF作成デスクトップアプリです。
 > Not intended as a general-purpose OSS project — shared here mainly
 > as a private update channel (see "アップデートの仕組み" below).
 
-現在のバージョン：**v1.2**
+現在のバージョン：**v1.4**
 
 
 ## できること
