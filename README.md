@@ -98,4 +98,4 @@ PDFや設定ファイルが残っていても配布ZIPには含まれません�
 
 ## クレジット
 
-- 開発：ClaudeCord & 井上
+- 開発：ClaudeCord & uhgm
