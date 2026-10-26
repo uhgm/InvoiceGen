@@ -1,13 +1,13 @@
 # InvoiceGen（請求書かんたん作成ツール）
 
-Windows 11で動く、請求書PDF作成デスクトップアプリです。
+請求書・領収証のPDFを作るデスクトップアプリです（Windows 11 / Linux 対応）。
 機械操作が苦手な方でも迷わず使えるように、UIをシンプルにし、
 画面のあちこちに説明（ヘルプ）を入れてあります。WebUIは使いません。
 
-> A simple Windows desktop app (Tkinter + ReportLab) that generates
-> Japanese-style invoice PDFs, built for a non-technical end user.
+> A simple desktop app (Tkinter + ReportLab) that generates
+> Japanese-style invoice and receipt PDFs, built for a non-technical end user.
 > Not intended as a general-purpose OSS project — shared here mainly
-> as a private update channel (see "アップデートの仕組み" below).
+> as an update channel (see "アップデートの仕組み" below).
 
 現在のバージョン：**v1.4**
 
@@ -15,69 +15,68 @@ Windows 11で動く、請求書PDF作成デスクトップアプリです。
 ## できること
 
 - 宛先・請求元・品目（数量×単価で金額自動計算）・消費税・備考・振込先（複数行）を画面から入力してPDF化
+- 領収証の発行、取引先の履歴、PDFのプレビュー
 - 請求元プロファイル（郵便番号込み住所／事務所名／代表者名／電話番号）を右上にまとめて印字、事務所名に会社印を重ねて印字
 - 請求元プロファイルの印字有無をチェックボックスで切り替え可能
-- 会社印の画像や振込先などの設定は自動で記憶され、次回以降入力し直す不要
+- 会社印の画像や振込先などの設定は自動で記憶され、次回以降入力し直す必要なし
 - 画面右上の「？使い方ヘルプ」ボタンと各入力欄のツールチップで操作をサポート
 - 画面右上の「🔄 アップデート確認」ボタンで、GitHubの「Releases」から最新版を取得・適用
 - 入力データ（`invoice_config.json`）はアプリのフォルダとは別の場所
-  （`%APPDATA%\InvoiceGeneratorTool\`）に保存されるため、
-  このリポジトリに個人情報が混ざる事故を防いでいます
+  （Windows：`%APPDATA%\InvoiceGeneratorTool\`、Linux：`~/.config/InvoiceGeneratorTool/`）
+  に保存されるため、このリポジトリに個人情報が混ざる事故を防いでいます
 
 
 ## フォルダ構成
 
 ```
 InvoiceGen/
-├─ (Releases)                    ← GitHubのReleasesページに配布用ZIPを添付（version.jsonは不要）
-├─ invoice_generator.py          ← アプリ本体（GUI）
-├─ pdf_builder.py                ← 請求書PDFの描画処理
-├─ updater.py                    ← アップデート機能の実装
-├─ make_release.py               ← 配布用ZIPを安全に作るスクリプト（開発者用）
-├─ requirements.txt              ← 必要なPythonパッケージ（reportlab）
-├─ 01_setup.bat                  ← 初回セットアップ（Windows用）
-├─ 02_start_invoice_tool.bat     ← アプリ起動用（Windows用）
-├─ create_shortcut.vbs           ← デスクトップショートカット作成用
-├─ assets/                       ← 埋め込みフォント（IPAフォント）等
-├─ setup_guide.txt               ← エンドユーザー（母）向けセットアップ手順
-├─ DEVELOPER_NOTES.txt           ← 開発者向けメモ（アップデート機能の仕組み）
-└─ RELEASE_WORKFLOW.txt          ← 開発者向け：更新を配布する手順のチェックリスト
+└─ invoice_app/
+   ├─ invoice_generator.py          ← アプリ本体（GUI）
+   ├─ pdf_builder.py                ← 請求書・領収証PDFの描画処理
+   ├─ updater.py                    ← アップデート機能の実装
+   ├─ requirements.txt              ← 必要なPythonパッケージ
+   ├─ assets/                       ← 埋め込みフォント（BIZ UDPゴシック）とライセンス
+   ├─ 01_setup.bat / 01_setup.sh    ← 初回セットアップ（Windows用 / Linux用）
+   ├─ 02_start_invoice_tool.bat/.sh ← アプリ起動用（Windows用 / Linux用）
+   ├─ create_shortcut.vbs/.sh       ← デスクトップショートカット作成用
+   ├─ setup_guide.txt               ← エンドユーザー向けセットアップ手順（Windows）
+   ├─ setup_guide_linux.txt         ← エンドユーザー向けセットアップ手順（Linux）
+   ├─ make_release.py               ← 配布用ZIPを安全に作るスクリプト（開発者用）
+   ├─ build_exe.bat / build_deb.sh  ← Windows用exe / Linux用.debのビルド（開発者用）
+   ├─ DEVELOPER_NOTES.txt           ← 開発者向けメモ（仕組みの詳細）
+   └─ RELEASE_WORKFLOW.txt          ← 開発者向け：更新を配布する手順のチェックリスト
 ```
 
+配布用ZIP・exe・.debはリポジトリには含めず、GitHubのReleasesページに添付しています。
 
-## エンドユーザー向けセットアップ
 
-Windows 11のPCで使う場合は、`invoice_generator_tool.zip` を展開して
-`setup_guide.txt` の手順に沿って進めてください（Pythonのインストール →
-`01_setup.bat` を実行 → デスクトップにできたアイコンから起動、という流れです）。
+## セットアップ
+
+Releasesページから `invoice_generator_tool.zip` をダウンロードして展開し、
+`setup_guide.txt`（Linuxは `setup_guide_linux.txt`）の手順に沿って進めてください
+（Pythonのインストール → `01_setup.bat` を実行 → デスクトップにできたアイコンから起動、という流れです）。
 
 
 ## 開発者向け：アップデートの仕組み
 
-このリポジトリは**Public**です。母のPC上のアプリが、起動時ではなく
-「🔄 アップデート確認」ボタンを押したタイミングで、GitHubの
-**Releases機能**（無料・PublicでもPrivateでも使える標準機能）の
-「最新のRelease」情報を確認しに行き、そこに添付されたZIPより
-新しいバージョンなら、ダウンロードして上書きします。
+アプリは、起動時ではなく「🔄 アップデート確認」ボタンを押したタイミングで、
+GitHubの**Releases機能**の「最新のRelease」情報を確認しに行き、
+添付された `invoice_generator_tool.zip` が今より新しいバージョンなら、
+ダウンロードして上書きします。
 署名検証やロールバックなどは実装していない、素朴な仕組みです
-（このリポジトリへの書き込み権限を持つのは自分だけ、という前提で運用してください）。
+（リポジトリへの書き込み権限を持つ人を限定する前提で運用しています）。
 
-以前（v1.1まで）はリポジトリ直下に `version.json` を手で置く方式でしたが、
-v1.2からはGitHubのRelease機能に一本化し、`version.json`のメンテナンスは
-不要になりました（`updater.py`は両方式に対応しているので、必要なら
-旧方式に戻すこともできます）。
-
-**個人情報の混入対策**：母が入力する請求書の内容（振込先・会社情報など）は
+**個人情報の混入対策**：請求書の入力内容（振込先・会社情報など）は
 `invoice_config.json` に保存されますが、これはアプリのフォルダの外
-（Windowsの個人設定用フォルダ）に保存される設計になっており、
+（OSの個人設定用フォルダ）に保存される設計になっており、
 このリポジトリやZIPに混ざることはありません。また `make_release.py` は
 配布してよいファイルだけを明示的に選んでZIPを作るので、手元にテスト用の
 PDFや設定ファイルが残っていても配布ZIPには含まれません。
 
-新しいバージョンを配布する具体的な手順は **[RELEASE_WORKFLOW.txt](./RELEASE_WORKFLOW.txt)**
-にチェックリスト形式でまとめてあります。仕組みの詳細（初回セットアップの
-やり方など）は **[updater.py](./updater.py)** 冒頭のコメントと
-**[DEVELOPER_NOTES.txt](./DEVELOPER_NOTES.txt)** を参照してください。
+新しいバージョンを配布する具体的な手順は **[RELEASE_WORKFLOW.txt](./invoice_app/RELEASE_WORKFLOW.txt)**
+にチェックリスト形式でまとめてあります。仕組みの詳細は
+**[updater.py](./invoice_app/updater.py)** 冒頭のコメントと
+**[DEVELOPER_NOTES.txt](./invoice_app/DEVELOPER_NOTES.txt)** を参照してください。
 
 概要だけ書くと：
 
@@ -92,8 +91,8 @@ PDFや設定ファイルが残っていても配布ZIPには含まれません�
 
 - Python 3 / Tkinter（GUI）
 - [ReportLab](https://www.reportlab.com/)（PDF生成）
-- フォントは [IPAフォント](https://moji.or.jp/ipafont/)（IPAフォントライセンスv1.0）を同梱・埋め込み
-  （ライセンス全文は `assets/IPA_Font_License.txt`）
+- フォントは [BIZ UDPゴシック](https://github.com/googlefonts/morisawa-biz-ud-gothic)（SIL Open Font License 1.1）を同梱・埋め込み
+  （ライセンス全文は `invoice_app/assets/BIZ_UDGothic_OFL.txt`）
 
 
 ## クレジット
