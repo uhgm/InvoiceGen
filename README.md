@@ -84,7 +84,7 @@ PDFや設定ファイルが残っていても配布ZIPには含まれません�
 1. コードを直す
 2. `invoice_generator.py` の `APP_VERSION_NUM` を上げる
 3. `python make_release.py` を実行して配布用ZIPを作り直す
-4. GitHubの「Releases」→「Draft a new release」で新しいタグ（例：`v1.3`）を作り、
+4. GitHubの「Releases」→「Draft a new release」で新しいタグ（例：`v1.5`）を作り、
    変更点を本文に書いて、`invoice_generator_tool.zip` を添付して公開する
 
 
