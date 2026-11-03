@@ -72,40 +72,60 @@ Same source tree runs on Linux now, no separate codebase:
   - Config storage already used XDG_CONFIG_HOME / ~/.config as the Linux
     branch of _get_user_data_dir() before any of this — that part needed
     no changes, it was cross-platform from the start.
-  - UI font: the Tkinter side used to hardcode font=("Meiryo", ...)
-    everywhere, which is a Windows-only font name — on Linux/Mac it just
-    renders as tofu boxes if nothing named "Meiryo" exists. Fixed by
-    picking the family at runtime (_pick_ui_font_family, called once in
-    main() after the Tk root exists) from a priority list, and replacing
-    every literal "Meiryo" with the module-level UI_FONT_FAMILY. As a
-    last resort on Linux with zero CJK fonts installed at all,
-    _ensure_bundled_font_on_linux() copies the already-bundled
-    assets/BIZUDPGothic-{Regular,Bold}.ttf (same font pdf_builder.py
-    embeds in the PDFs — see the font/readability note below) into
-    ~/.local/share/fonts/ and runs fc-cache — per-user only, never
-    touches /usr/share/fonts, same "never write outside the user's own
-    folder" principle as the config storage. Best-effort / silently
-    gives up on failure, same spirit as everything else here.
-  - Japanese input (IME): Tk on X11 only talks to IMEs over XIM, and
-    picks the IME from the XMODIFIERS env var, read when the Tk root is
-    created. GNOME sets it; WSL and some desktops leave it empty, and
-    then only ASCII can be typed — it's not an encoding problem.
-    _setup_linux_input_method() (called in main() before tk.Tk()) fills
-    XMODIFIERS in from GTK_IM_MODULE / QT_IM_MODULE or a running
-    fcitx5 / fcitx / ibus / uim process, only when it's unset.
-    01_setup.sh just warns if no IME is installed at all.
-    Testing on WSL (Windows' IME never reaches WSLg apps): sudo apt
-    install fcitx5-mozc, add Mozc to ~/.config/fcitx5/profile (or via
-    fcitx5-configtool), then start
-    `fcitx5 -d --disable=wayland,waylandim` before launching the app and
-    toggle with 半角/全角 or Ctrl+Space. The --disable is required:
-    WSLg's compositor refuses the Wayland input_method protocol and
-    fcitx5 exits right after starting without it (XIM is all Tk needs).
-    If fcitx5 is auto-started from ~/.profile, pass DISPLAY explicitly
-    (`DISPLAY="${DISPLAY:-:0}" setsid -f fcitx5 -d ...`): shells such as
-    VSCode's WSL connection have no DISPLAY, and fcitx5 then runs without
-    X11, so no XIM server is registered. Check with
-    `xprop -root XIM_SERVERS` (should show @server=fcitx).
+  - UI font (since v1.6 / Qt): main_window.py loads the bundled
+    assets/BIZUDPGothic-{Regular,Bold}.ttf with
+    QFontDatabase.addApplicationFont — the same font pdf_builder.py embeds
+    in the PDFs — so the UI looks the same on every PC and nothing is
+    installed into ~/.local/share/fonts anymore (the Tk-era
+    _pick_ui_font_family / _ensure_bundled_font_on_linux are gone).
+    That font has zero line gap in its metrics, so multi-line QLabels
+    overlap their lines; wrapped_label() renders them as rich text with
+    line-height:145% (the help dialog does the same).
+  - Japanese input (IME) on Linux: Qt 6 doesn't use XIM at all; it talks
+    to the IME through platform input-context plugins. The PySide6 wheel
+    ships the ibus plugin (works out of the box with ibus-mozc), but NOT
+    a fcitx5 one, and the distro's fcitx5-frontend-qt6 plugin is built
+    against the distro's Qt, not PySide6's, so fcitx5 users may need ibus
+    instead. On Windows the IME just works, inline, in the widget's font.
+    (The Tk-era XMODIFIERS / XIM workarounds and the WSL fcitx5 notes
+    were removed with the Tk UI. In short, Tk's over-the-spot XIM needed
+    X core fonts that WSLg's Xwayland doesn't have, and Tk silently
+    skipped creating the input context.)
+  - Qt platform on Linux: main_window.run() sets
+    QT_QPA_PLATFORM="wayland;xcb" when WAYLAND_DISPLAY is set and the
+    variable isn't already set. WSL sets WAYLAND_DISPLAY but no
+    XDG_SESSION_TYPE, so Qt would otherwise pick xcb, which needs
+    libxcb-cursor0 (Qt >= 6.5) and aborts without it. The .deb declares
+    Depends: libxcb-cursor0, and setup_guide_linux.txt lists it too.
+
+Qt UI and auto-installing PySide6 (v1.6)
+-----------------------------------------
+The UI moved from Tkinter to Qt (PySide6-Essentials). Files:
+  - invoice_generator.py — entry point only, stdlib only. The shortcut /
+    02_start_invoice_tool still run `pythonw invoice_generator.py`.
+  - app_common.py — version number, config paths/load/save, dummy data,
+    help text. APP_VERSION_NUM now lives HERE (build_deb.sh reads it
+    from here; bump it here for a release).
+  - main_window.py — the Qt window.
+  - pdf_builder.py / updater.py — unchanged roles.
+make_release.py's whitelist includes the two new files.
+
+★ Why invoice_generator.py checks for PySide6 itself ★
+Installs from v1.5 or older update by having updater.py overwrite the
+app folder with the release zip — it never runs pip. Without a check, the
+first launch after updating would import PySide6, fail, and since it's
+started with pythonw, show NOTHING at all. So invoice_generator.py:
+  1. tries to import PySide6.QtWidgets,
+  2. if missing, opens a small Tk "準備中" window (Tk ships with Python)
+     and runs `python -m pip install -r requirements.txt` with
+     python.exe next to pythonw.exe, no console window,
+  3. on failure tells her to run 01_setup.bat / 01_setup.sh,
+  4. then imports main_window and runs it.
+Frozen builds (exe/.deb) skip all of this — PySide6 is bundled.
+Tested on Windows with a fresh venv that had only reportlab + PyMuPDF:
+pythonw → auto install → Qt window, no console flashes. pip falls back
+to a --user install by itself if the global site-packages isn't
+writable (e.g. Python installed for all users).
 
 Font / readability pass (PDF output)
 -------------------------------------

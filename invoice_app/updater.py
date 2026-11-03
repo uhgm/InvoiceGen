@@ -11,14 +11,14 @@
     1. GitHubに公開リポジトリ（Public repository）を1つ作る
        例：https://github.com/あなたのアカウント/InvoiceGen
 
-    2. invoice_generator.py の中の UPDATE_MANIFEST_URL を、次の形に書き換える：
+    2. app_common.py の中の UPDATE_MANIFEST_URL を、次の形に書き換える：
          https://api.github.com/repos/あなたのアカウント/InvoiceGen/releases/latest
        （これはGitHubが自動的に用意している「最新のRelease情報」を返すURLです。
         あなたが何かファイルを作って置く必要はありません）
 
   【2回目以降・更新を配布したいとき】
     a. 手元でファイルを修正する
-    b. invoice_generator.py の APP_VERSION_NUM を上げる（例："1.1" → "1.2"）
+    b. app_common.py の APP_VERSION_NUM を上げる（例："1.1" → "1.2"）
     c. python make_release.py を実行して invoice_generator_tool.zip を作り直す
     d. GitHubのリポジトリページ →「Releases」→「Draft a new release」を開く
     e. 「Choose a tag」で新しいタグを作る（例： v1.2 ← 先頭に v を付ける）

@@ -25,12 +25,12 @@ BUILD_VENV=".build-venv"
 
 APP_VERSION="$(python3 -c "
 import re
-src = open('invoice_generator.py', encoding='utf-8').read()
+src = open('app_common.py', encoding='utf-8').read()
 print(re.search(r'APP_VERSION_NUM = \"([^\"]+)\"', src).group(1))
 ")"
 SUPPORT_EMAIL="$(python3 -c "
 import re
-src = open('invoice_generator.py', encoding='utf-8').read()
+src = open('app_common.py', encoding='utf-8').read()
 print(re.search(r'APP_SUPPORT_EMAIL = \"([^\"]+)\"', src).group(1))
 ")"
 
@@ -94,6 +94,7 @@ Priority: optional
 Architecture: $ARCH
 Installed-Size: $DEB_SIZE_KB
 Maintainer: InvoiceGeneratorTool <$SUPPORT_EMAIL>
+Depends: libxcb-cursor0
 Description: 請求書かんたん作成ツール
  請求書・領収証のPDFをかんたんに作成するデスクトップアプリです。
  Pythonのインストール不要で、単体で動作します。

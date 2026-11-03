@@ -34,7 +34,9 @@ ZIP_ROOT_FOLDER = "InvoiceGeneratorTool"
 
 # 配布してよいファイル・フォルダだけを明示的に列挙する（ホワイトリスト方式）
 INCLUDE_FILES = [
-    "invoice_generator.py",
+    "invoice_generator.py",  # 起動用（PySide6 が無ければ自動で入れる）
+    "app_common.py",
+    "main_window.py",
     "pdf_builder.py",
     "updater.py",
     "requirements.txt",

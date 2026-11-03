@@ -46,7 +46,7 @@ if ! command -v fcitx5 >/dev/null 2>&1 && ! command -v fcitx >/dev/null 2>&1 \
     echo "[ご注意] 日本語入力ソフト（IME）が見つかりませんでした。"
     echo "このままでも使えますが、日本語が入力できず英字しか入りません。"
     echo "日本語を入力したい場合は、セットアップ後に次を実行してください（詳しくは setup_guide_linux.txt）。"
-    echo "  Ubuntu/Debian系： sudo apt install fcitx5-mozc"
+    echo "  Ubuntu/Debian系： sudo apt install ibus-mozc"
 fi
 echo
 
