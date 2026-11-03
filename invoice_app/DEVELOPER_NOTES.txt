@@ -86,6 +86,26 @@ Same source tree runs on Linux now, no separate codebase:
     touches /usr/share/fonts, same "never write outside the user's own
     folder" principle as the config storage. Best-effort / silently
     gives up on failure, same spirit as everything else here.
+  - Japanese input (IME): Tk on X11 only talks to IMEs over XIM, and
+    picks the IME from the XMODIFIERS env var, read when the Tk root is
+    created. GNOME sets it; WSL and some desktops leave it empty, and
+    then only ASCII can be typed — it's not an encoding problem.
+    _setup_linux_input_method() (called in main() before tk.Tk()) fills
+    XMODIFIERS in from GTK_IM_MODULE / QT_IM_MODULE or a running
+    fcitx5 / fcitx / ibus / uim process, only when it's unset.
+    01_setup.sh just warns if no IME is installed at all.
+    Testing on WSL (Windows' IME never reaches WSLg apps): sudo apt
+    install fcitx5-mozc, add Mozc to ~/.config/fcitx5/profile (or via
+    fcitx5-configtool), then start
+    `fcitx5 -d --disable=wayland,waylandim` before launching the app and
+    toggle with 半角/全角 or Ctrl+Space. The --disable is required:
+    WSLg's compositor refuses the Wayland input_method protocol and
+    fcitx5 exits right after starting without it (XIM is all Tk needs).
+    If fcitx5 is auto-started from ~/.profile, pass DISPLAY explicitly
+    (`DISPLAY="${DISPLAY:-:0}" setsid -f fcitx5 -d ...`): shells such as
+    VSCode's WSL connection have no DISPLAY, and fcitx5 then runs without
+    X11, so no XIM server is registered. Check with
+    `xprop -root XIM_SERVERS` (should show @server=fcitx).
 
 Font / readability pass (PDF output)
 -------------------------------------

@@ -37,6 +37,17 @@ if ! "$PYCMD" -c "import tkinter" >/dev/null 2>&1; then
     exit 1
 fi
 echo "tkinter（画面表示ライブラリ）も見つかりました。"
+
+# 日本語入力ソフト（IME）が入っているか確認する。無くてもツール自体は動くが、
+# 宛先や品名に日本語が打てない（英字しか入らない）ので、ここで案内だけしておく。
+if ! command -v fcitx5 >/dev/null 2>&1 && ! command -v fcitx >/dev/null 2>&1 \
+    && ! command -v ibus >/dev/null 2>&1 && ! command -v uim-xim >/dev/null 2>&1; then
+    echo
+    echo "[ご注意] 日本語入力ソフト（IME）が見つかりませんでした。"
+    echo "このままでも使えますが、日本語が入力できず英字しか入りません。"
+    echo "日本語を入力したい場合は、セットアップ後に次を実行してください（詳しくは setup_guide_linux.txt）。"
+    echo "  Ubuntu/Debian系： sudo apt install fcitx5-mozc"
+fi
 echo
 
 echo "必要なファイルをインストールしています（少し時間がかかります）..."
