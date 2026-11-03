@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 請求書PDFの描画処理。
-invoice_generator.py から呼び出される。
+main_window.py（画面）から呼び出される。
 """
 import os
 import sys

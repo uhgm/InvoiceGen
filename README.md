@@ -31,7 +31,9 @@
 ```
 InvoiceGen/
 └─ invoice_app/
-   ├─ invoice_generator.py          ← アプリ本体（GUI）
+   ├─ invoice_generator.py          ← 起動用（PySide6が無ければ自動でインストール）
+   ├─ main_window.py                ← アプリの画面（Qt / PySide6）
+   ├─ app_common.py                 ← バージョン番号・設定の読み書きなどの共通部分
    ├─ pdf_builder.py                ← 請求書・領収証PDFの描画処理
    ├─ updater.py                    ← アップデート機能の実装
    ├─ requirements.txt              ← 必要なPythonパッケージ
@@ -81,7 +83,7 @@ PDFや設定ファイルが残っていても配布ZIPには含まれません�
 概要だけ書くと：
 
 1. コードを直す
-2. `invoice_generator.py` の `APP_VERSION_NUM` を上げる
+2. `app_common.py` の `APP_VERSION_NUM` を上げる
 3. `python make_release.py` を実行して配布用ZIPを作り直す
 4. GitHubの「Releases」→「Draft a new release」で新しいタグ（例：`v1.5`）を作り、
    変更点を本文に書いて、`invoice_generator_tool.zip` を添付して公開する
@@ -89,7 +91,7 @@ PDFや設定ファイルが残っていても配布ZIPには含まれません�
 
 ## 使用技術
 
-- Python 3 / Tkinter（GUI）
+- Python 3 / [Qt for Python（PySide6）](https://doc.qt.io/qtforpython-6/)（GUI）
 - [ReportLab](https://www.reportlab.com/)（PDF生成）
 - フォントは [BIZ UDPゴシック](https://github.com/googlefonts/morisawa-biz-ud-gothic)（SIL Open Font License 1.1）を同梱・埋め込み
   （ライセンス全文は `invoice_app/assets/BIZ_UDGothic_OFL.txt`）

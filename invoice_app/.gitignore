@@ -24,3 +24,8 @@ dist/
 *.deb
 invoice-generator-tool-windows-x64.zip
 
+
+# 個人設定のフォルダが作れないPCでは、アプリのフォルダに作られることがある
+# （ダミーの印影と、画面の▼の画像。どちらもアプリが自動で作る）
+dummy_seal.png
+ui_arrow_down.svg

@@ -31,13 +31,13 @@
 お使いのディストリビューションに合わせて選んでください。
 
   Ubuntu / Debian系：
-      sudo apt install python3 python3-venv python3-tk
+      sudo apt install python3 python3-venv python3-tk libxcb-cursor0
 
   Fedora系：
-      sudo dnf install python3 python3-tkinter
+      sudo dnf install python3 python3-tkinter xcb-util-cursor
 
   Arch系：
-      sudo pacman -S python tk
+      sudo pacman -S python tk xcb-util-cursor
 
 パスワードの入力を求められたら、パソコンのログインパスワードを
 入力してください（画面には表示されませんが入力はされています）。
@@ -111,17 +111,19 @@ A. 通常は自動で解消されます（起動時に、同梱の日本語フ�
    追加でインストールしてみてください。
 
 Q. 日本語が入力できない（英字しか入らない）。
-A. 日本語入力ソフト（IME）が入っていないか、動いていません。
+A. 日本語入力ソフト（IME）が入っていないか、このツールと
+   つながらない種類のものを使っています。
+   このツールは「ibus」という日本語入力の仕組みに対応しています。
    次のコマンドで入れてから、パソコンを再起動（ログインし直し）してください。
 
   Ubuntu / Debian系：
-      sudo apt install fcitx5-mozc
+      sudo apt install ibus-mozc
 
    再起動後、画面右上などに出るキーボードのアイコンから
-   「Mozc」を追加し、Ctrl + スペース（または 半角/全角 キー）で
+   「日本語（Mozc）」を追加し、半角/全角 キー（または Super + スペース）で
    日本語入力に切り替えてください。
-   すでに別の日本語入力（ibus-mozc など）を使っている場合は、
-   新しく入れる必要はありません（ツールが自動でつながります）。
+   ※ 「fcitx5」という別の日本語入力を使っている場合、このツールでは
+     日本語が打てないことがあります。その場合は ibus に切り替えてください。
 
 Q. 会社印の画像がうまく重ならない・ずれている。
 A. 印影（ハンコ部分）だけが写っている、正方形に近い画像を

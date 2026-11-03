@@ -10,7 +10,7 @@ v1.2から、GitHubの「Releases」機能を使う方式に変更しました�
 【初回セットアップ（v1.2で完了済み）】
 ----------------------------------------------------
   1. リポジトリ（uhgm/InvoiceGen）はPublicのまま
-  2. invoice_generator.py の UPDATE_MANIFEST_URL は下記の形に設定済み：
+  2. app_common.py の UPDATE_MANIFEST_URL は下記の形に設定済み：
        https://api.github.com/repos/uhgm/InvoiceGen/releases/latest
      （GitHubが自動的に用意している「最新のRelease情報」を返すURL。
       これはあなたが何かファイルを作って置く必要はありません）
@@ -24,7 +24,7 @@ v1.2から、GitHubの「Releases」機能を使う方式に変更しました�
 ----------------------------------------------------
   ① invoice_generator.py などのファイルを、いつも通り手元で修正する
 
-  ② invoice_generator.py の中の APP_VERSION_NUM を上げる
+  ② app_common.py の中の APP_VERSION_NUM を上げる（v1.6から置き場所が変わりました）
        例： "1.2"  →  "1.3"
 
   ③ ターミナルで次を実行し、配布用ZIPを作り直す
@@ -55,7 +55,7 @@ v1.2から、GitHubの「Releases」機能を使う方式に変更しました�
 ----------------------------------------------------
 【チェックリスト（コピペして使ってください）】
 ----------------------------------------------------
-□ invoice_generator.py の APP_VERSION_NUM を上げた
+□ app_common.py の APP_VERSION_NUM を上げた
 □ python make_release.py を実行して新しいZIPを作った
 □ GitHubで「Draft a new release」を開いた
 □ 新しいタグ（v1.3 など、②と同じ番号に v をつけたもの）を作った
@@ -74,5 +74,5 @@ updater.py はこの旧方式にも対応しているので、もし何かの理
 Releases機能が使えない場合は、以前と同じやり方（version.json の
 "version"と"zip_url"を書き換えて、invoice_generator_tool.zipと一緒に
 リポジトリ直下にコミットする）に戻すこともできます。
-その場合は invoice_generator.py の UPDATE_MANIFEST_URL を
+その場合は app_common.py の UPDATE_MANIFEST_URL を
 version.json の「Raw」URLに書き換えてください。
