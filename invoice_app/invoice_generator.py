@@ -160,6 +160,96 @@ def _ensure_bundled_font_on_linux():
         pass  # 失敗しても起動自体は続ける（最悪、文字が四角になるだけ）
 
 
+def _setup_linux_input_method():
+    """Linuxで日本語入力（IME）がこの画面につながるようにする。Tk() を作る前に呼ぶこと。
+
+    Tkinter は X Input Method（XIM）経由でしかIMEとつながらず、接続先のIMEは
+    XMODIFIERS 環境変数（例：@im=fcitx）で指定する決まりになっている。
+    GNOMEなどは自動で設定してくれるが、WSLや一部のデスクトップでは空のままで、
+    その場合は日本語が打てず英字しか入らない。そこで未設定のときだけ、
+    GTK_IM_MODULE などの設定や、実際に動いているIMEから推測して補う（失敗しても無視）。
+    """
+    if not sys.platform.startswith("linux") or os.environ.get("XMODIFIERS"):
+        return
+    try:
+        hint = " ".join(
+            os.environ.get(k, "") for k in ("GTK_IM_MODULE", "QT_IM_MODULE", "INPUT_METHOD")
+        ).strip().lower()
+        if not hint:
+            # 動いているプロセス名から探す（fcitx5・fcitx・ibus-daemon・uim-xim など）
+            names = []
+            for pid in os.listdir("/proc"):
+                if pid.isdigit():
+                    try:
+                        with open(f"/proc/{pid}/comm", encoding="utf-8") as f:
+                            names.append(f.read().strip())
+                    except Exception:
+                        pass
+            hint = " ".join(names).lower()
+        # fcitx5 も XIM の接続名は「fcitx」
+        for key, im_name in (("fcitx", "fcitx"), ("ibus", "ibus"), ("uim", "uim")):
+            if key in hint:
+                os.environ["XMODIFIERS"] = f"@im={im_name}"
+                return
+    except Exception:
+        pass
+
+
+def _match_ime_font_to_widget(event):
+    """Windowsで、日本語の変換中の文字を入力欄と同じフォント・大きさで表示させる。
+
+    Tk は変換中の文字のフォントを IME に伝えないため、IME が自分の既定の書体で
+    描いてしまい、確定前と確定後で見た目が大きく変わる。そこで入力欄にフォーカスが
+    来るたびに、その欄のフォントを ImmSetCompositionFontW で IME に伝える
+    （失敗しても入力自体には影響しないので無視する）。"""
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        w = event.widget
+        if not isinstance(w, tk.Misc) or w.winfo_class() not in (
+            "TEntry", "Entry", "TCombobox", "Text", "TSpinbox", "Spinbox",
+        ):
+            return
+        actual = w.tk.splitlist(w.tk.call("font", "actual", w.cget("font") or "TkTextFont"))
+        actual = dict(zip(actual[::2], actual[1::2]))
+        size = int(actual["-size"])
+        # 正の値はポイント、負の値はピクセル（Tkの決まり）
+        px = -size if size < 0 else size * w.winfo_fpixels("1i") / 72
+
+        class LOGFONTW(ctypes.Structure):
+            _fields_ = [
+                ("lfHeight", wintypes.LONG), ("lfWidth", wintypes.LONG),
+                ("lfEscapement", wintypes.LONG), ("lfOrientation", wintypes.LONG),
+                ("lfWeight", wintypes.LONG), ("lfItalic", wintypes.BYTE),
+                ("lfUnderline", wintypes.BYTE), ("lfStrikeOut", wintypes.BYTE),
+                ("lfCharSet", wintypes.BYTE), ("lfOutPrecision", wintypes.BYTE),
+                ("lfClipPrecision", wintypes.BYTE), ("lfQuality", wintypes.BYTE),
+                ("lfPitchAndFamily", wintypes.BYTE), ("lfFaceName", wintypes.WCHAR * 32),
+            ]
+
+        lf = LOGFONTW()
+        lf.lfHeight = -round(px)
+        lf.lfWeight = 700 if actual.get("-weight") == "bold" else 400
+        lf.lfCharSet = 128  # SHIFTJIS_CHARSET
+        lf.lfFaceName = actual["-family"][:31]
+
+        imm32 = ctypes.windll.imm32
+        imm32.ImmGetContext.argtypes = [wintypes.HWND]
+        imm32.ImmGetContext.restype = wintypes.HANDLE
+        imm32.ImmSetCompositionFontW.argtypes = [wintypes.HANDLE, ctypes.POINTER(LOGFONTW)]
+        imm32.ImmReleaseContext.argtypes = [wintypes.HWND, wintypes.HANDLE]
+        hwnd = w.winfo_id()
+        himc = imm32.ImmGetContext(hwnd)
+        if himc:
+            imm32.ImmSetCompositionFontW(himc, ctypes.byref(lf))
+            imm32.ImmReleaseContext(hwnd, himc)
+    except Exception:
+        pass
+
+
 def _pick_ui_font_family(root):
     """このPCで実際に使える日本語フォントを候補リストから選ぶ。"""
     try:
@@ -172,7 +262,7 @@ def _pick_ui_font_family(root):
     return "TkDefaultFont"
 
 
-APP_VERSION_NUM = "1.4"
+APP_VERSION_NUM = "1.5"
 APP_VERSION = f"Version {APP_VERSION_NUM}"
 APP_CREDIT = "ClaudeCord & 井上"
 APP_SUPPORT_EMAIL = "satoshi29333104@gmail.com"
@@ -198,8 +288,53 @@ DEFAULT_CONFIG = {
     ],
     "last_save_dir": "",
     "remarks_default": "",
+    "doc_format": "standard",  # PDFの書式。"standard"＝標準、"classic"＝以前のシステムと同じ書式
     "destinations": [],  # 過去に入力した取引先（宛先）の履歴。新しい順。
 }
+
+# PDFの書式（設定ファイルに保存する値 → 画面に出す名前）
+DOC_FORMAT_LABELS = {
+    "standard": "モダン",
+    "classic": "クラシック",
+}
+
+# 「ダミーデータを下記の全空欄に入力」ボタンで入れる、出力テスト用の内容。
+# 品目は合計が5万円を超えるようにして、領収証の収入印紙欄も確認できるようにしている。
+DUMMY_FIELDS = {
+    "invoice_number": "DUMMY-0001",
+    "dest_name": "ダミー株式会社",
+    "dest_zip": "100-0001",
+    "dest_addr": "東京都千代田区ダミー町1-2-3",
+    "dest_tel": "03-0000-0000",
+    "dest_fax": "03-0000-0001",
+    "issuer_zip": "150-0000",
+    "issuer_address": "東京都渋谷区テスト町4-5-6",
+    "issuer_name": "テスト商店街振興組合",
+    "issuer_representative": "代表理事 見本 太郎",
+    "issuer_tel": "03-1111-2222",
+    "issuer_fax": "03-1111-2223",
+    "bank_holder1": "テスト商店街振興組合 代表理事 見本太郎",
+    "bank_holder2": "東京都渋谷区テスト町4-5-6　電話03-1111-2222",
+}
+DUMMY_REMARKS = "これは出力テスト用のダミーデータです。"
+# (日付, 品名, 数量, 単価, 消費税, 摘要)
+DUMMY_ITEMS = [
+    ("10月1日", "賦課金 R8.10〜R9.3月", "6", "1800", "", ""),
+    ("10月1日", "準組合費", "12", "1500", "", "令和8.11〜9.10月"),
+    ("10月15日", "イベント協賛金", "1", "50000", "5000", "テスト用"),
+]
+# (金融機関名, 支店名, 店番, 口座種類, 口座番号)
+DUMMY_BANKS = [
+    ("ダミー信用金庫", "本店", "001", "普通", "1234567"),
+    ("テスト銀行", "駅前", "123", "当座", "7654321"),
+]
+DUMMY_SEAL_PATH = os.path.join(_USER_DATA_DIR, "dummy_seal.png")
+DUMMY_BUTTON_FILL = "🧪 ダミーデータを下記の全空欄に入力"
+DUMMY_BUTTON_CLEAR = "🧹 入力したダミーデータを消して空欄に戻す"
+DUMMY_STATUS_IDLE = "出力テスト用です。空いている欄だけに入力します（入力済みの欄はそのまま）。"
+DUMMY_STATUS_ACTIVE = (
+    "※ ダミーデータ入力中：設定・取引先の履歴は保存されません。もう一度押すと消せます。"
+)
 
 MAX_DESTINATION_HISTORY = 50  # 取引先履歴の保存件数の上限
 
@@ -289,12 +424,34 @@ HELP_TEXT = """【使い方ガイド】
      印字されます（印紙そのものは含まれないので、あとで貼って
      消印してください）。
 
+  Q. 以前のシステムと同じ形の請求書・領収書にしたい
+  A. 画面いちばん上の「PDFの書式」で「クラシック」を
+     選んでください。請求書・領収証のどちらのボタンにも効きます。
+     選んだ書式は、次にこのアプリを開いたときも残ります。
+
+  Q. 請求書と領収証を一度に作りたい
+  A. 画面いちばん下の「📑 請求書・領収証を一括作成」ボタンを押すと、
+     保存するフォルダを1回選ぶだけで、両方のPDFがまとめて作成されます。
+
+  Q. 印刷や見た目の確認だけしたい（テスト用のデータで試したい）
+  A. 入力欄のいちばん上にある「🧪 ダミーデータを下記の全空欄に入力」
+     ボタンを押すと、空いている欄に「ダミー株式会社」などの見本の
+     内容が入ります（入力済みの欄はそのまま）。会社印が未設定なら
+     「見本之印」という仮の印影も使われます。
+     ダミーデータを入れている間は、設定や取引先の履歴は保存されないので、
+     本番の情報が書き換わる心配はありません。
+     もう一度同じボタン（「🧹 入力したダミーデータを消して空欄に戻す」）を
+     押すと、ダミーで入れた欄だけが空欄に戻ります（あとから書き換えた欄は残ります）。
+
   Q. 保存する前に、出来上がりを見たい
   A. 画面右側に「プレビュー」欄があり、入力しながら自動でPDFの
      見た目が表示されます（少し待つと反映されます）。
      「請求書」「領収証」のどちらを見るかは、プレビュー欄の上にある
      ボタンで切り替えられます。うまく表示されないときは
      「🔄 今すぐ更新」ボタンを押してください。
+     入力欄とプレビューの境目（仕切り）はドラッグで動かせます。
+     元の配置に戻したいときは、画面右上の「↔ 画面の配置を元に戻す」
+     ボタンを押すか、仕切りをダブルクリックしてください。
 
   Q. PDFはどこに保存されるの？
   A. 「📄 請求書PDFを作成する」ボタンを押したときに出てくる画面で、
@@ -340,11 +497,21 @@ class ToolTip:
             self.tipwindow = None
 
 
+def _grid_table_header(parent, headers):
+    """入力表の見出しを parent の0行目に並べる。見出しと入力欄を同じ grid に
+    入れることで、文字の大きさが違っても列の位置が必ずそろうようにしている。
+    headers は (見出し, 寄せ方) のリスト。寄せ方は "w"（左）か "e"（右）。"""
+    for col, (text, sticky) in enumerate(headers):
+        ttk.Label(parent, text=text, font=(UI_FONT_FAMILY, 10, "bold")).grid(
+            row=0, column=col, padx=2, sticky=sticky,
+        )
+
+
 class ItemRow:
-    """品目テーブルの1行分の入力欄をまとめたクラス。"""
+    """品目テーブルの1行分の入力欄をまとめたクラス。
+    入力欄は見出しと同じ parent の grid に、1行ずつ下に追加していく。"""
 
     def __init__(self, parent, on_change, on_remove):
-        self.frame = ttk.Frame(parent)
         self.on_change = on_change
 
         self.date_var = tk.StringVar()
@@ -356,18 +523,21 @@ class ItemRow:
         self.amount_var = tk.StringVar(value="￥0")
 
         widths = [10, 26, 6, 10, 10, 14]
-        e1 = ttk.Entry(self.frame, textvariable=self.date_var, width=widths[0])
-        e2 = ttk.Entry(self.frame, textvariable=self.name_var, width=widths[1])
-        e3 = ttk.Entry(self.frame, textvariable=self.qty_var, width=widths[2])
-        e4 = ttk.Entry(self.frame, textvariable=self.price_var, width=widths[3])
-        lbl_amount = ttk.Label(self.frame, textvariable=self.amount_var, width=widths[4], anchor="e")
-        e6 = ttk.Entry(self.frame, textvariable=self.tax_var, width=8)
-        e7 = ttk.Entry(self.frame, textvariable=self.note_var, width=widths[5])
-        btn_del = ttk.Button(self.frame, text="削除", width=5,
+        e1 = ttk.Entry(parent, textvariable=self.date_var, width=widths[0])
+        e2 = ttk.Entry(parent, textvariable=self.name_var, width=widths[1])
+        e3 = ttk.Entry(parent, textvariable=self.qty_var, width=widths[2])
+        e4 = ttk.Entry(parent, textvariable=self.price_var, width=widths[3])
+        lbl_amount = ttk.Label(parent, textvariable=self.amount_var, width=widths[4], anchor="e")
+        e6 = ttk.Entry(parent, textvariable=self.tax_var, width=8)
+        e7 = ttk.Entry(parent, textvariable=self.note_var, width=widths[5])
+        btn_del = ttk.Button(parent, text="削除", width=5,
                               command=lambda: on_remove(self))
 
-        for i, w in enumerate([e1, e2, e3, e4, lbl_amount, e6, e7, btn_del]):
-            w.grid(row=0, column=i, padx=2, pady=2, sticky="w")
+        # 途中の行を削除しても、新しい行は必ずいちばん下に追加される
+        grid_row = parent.grid_size()[1]
+        self.widgets = [e1, e2, e3, e4, lbl_amount, e6, e7, btn_del]
+        for i, w in enumerate(self.widgets):
+            w.grid(row=grid_row, column=i, padx=2, pady=2, sticky="w")
 
         for var in (self.qty_var, self.price_var):
             var.trace_add("write", lambda *_: self._recalc())
@@ -378,6 +548,20 @@ class ItemRow:
         ToolTip(e4, "1個あたりの値段（数字のみ、円マーク不要）")
         ToolTip(e6, "消費税額。分からなければ空欄のままでOKです")
         ToolTip(e7, "備考・補足があれば入力（任意）")
+
+    def destroy(self):
+        for w in self.widgets:
+            w.destroy()
+
+    def dummy_vars(self):
+        """DUMMY_ITEMS の並び（日付・品名・数量・単価・消費税・摘要）に対応する入力欄。"""
+        return [self.date_var, self.name_var, self.qty_var, self.price_var, self.tax_var, self.note_var]
+
+    def reset(self):
+        """新しく行を追加したときと同じ、空の状態に戻す。"""
+        for var in self.dummy_vars():
+            var.set("")
+        self.qty_var.set("1")
 
     def _recalc(self):
         try:
@@ -422,8 +606,9 @@ class ItemRow:
 
 
 class BankRow:
+    """振込先テーブルの1行分。ItemRow と同じく、見出しと同じ grid に追加する。"""
+
     def __init__(self, parent, on_remove):
-        self.frame = ttk.Frame(parent)
         self.name_var = tk.StringVar()
         self.branch_var = tk.StringVar()
         self.code_var = tk.StringVar()
@@ -432,22 +617,38 @@ class BankRow:
 
         widths = [16, 10, 6, 6, 12]
         entries = [
-            ttk.Entry(self.frame, textvariable=self.name_var, width=widths[0]),
-            ttk.Entry(self.frame, textvariable=self.branch_var, width=widths[1]),
-            ttk.Entry(self.frame, textvariable=self.code_var, width=widths[2]),
-            ttk.Entry(self.frame, textvariable=self.type_var, width=widths[3]),
-            ttk.Entry(self.frame, textvariable=self.number_var, width=widths[4]),
+            ttk.Entry(parent, textvariable=self.name_var, width=widths[0]),
+            ttk.Entry(parent, textvariable=self.branch_var, width=widths[1]),
+            ttk.Entry(parent, textvariable=self.code_var, width=widths[2]),
+            ttk.Entry(parent, textvariable=self.type_var, width=widths[3]),
+            ttk.Entry(parent, textvariable=self.number_var, width=widths[4]),
         ]
+        grid_row = parent.grid_size()[1]
         for i, w in enumerate(entries):
-            w.grid(row=0, column=i, padx=2, pady=2, sticky="w")
-        btn = ttk.Button(self.frame, text="削除", width=5, command=lambda: on_remove(self))
-        btn.grid(row=0, column=len(entries), padx=2)
+            w.grid(row=grid_row, column=i, padx=2, pady=2, sticky="w")
+        btn = ttk.Button(parent, text="削除", width=5, command=lambda: on_remove(self))
+        btn.grid(row=grid_row, column=len(entries), padx=2)
+        self.widgets = entries + [btn]
 
         ToolTip(entries[0], "金融機関名（例：〇〇信用金庫）")
         ToolTip(entries[1], "支店名（例：千駄ヶ谷支店）")
         ToolTip(entries[2], "支店番号（分かれば入力、なくてもOK）")
         ToolTip(entries[3], "口座種類（普通 または 当座）")
         ToolTip(entries[4], "口座番号")
+
+    def destroy(self):
+        for w in self.widgets:
+            w.destroy()
+
+    def dummy_vars(self):
+        """DUMMY_BANKS の並び（金融機関名・支店名・店番・口座種類・口座番号）に対応する入力欄。"""
+        return [self.name_var, self.branch_var, self.code_var, self.type_var, self.number_var]
+
+    def reset(self):
+        """新しく行を追加したときと同じ、空の状態に戻す。"""
+        for var in self.dummy_vars():
+            var.set("")
+        self.type_var.set("普通")
 
     def is_blank(self):
         return not any([
@@ -471,12 +672,19 @@ class InvoiceApp:
         self.cfg = load_config()
         self._preview_photo = None  # PhotoImageへの参照（GC対策で保持しておく）
         self._preview_after_id = None
+        # ダミーデータを入れたら、その起動中は設定・取引先履歴を保存しない
+        # （本番の設定に「ダミー株式会社」などが混ざらないようにするため）
+        self._dummy_active = False
+        # ダミーで入れた場所の記録（もう一度ボタンを押したときに、そこだけ空欄に戻すため）
+        self._dummy_filled = None
         root.title(f"請求書かんたん作成ツール - {APP_VERSION}")
         # 右側にPDFプレビューを表示するため、画面サイズはフルHD固定にしている。
         root.geometry("1920x1080")
 
         self._build_layout()
         self._load_defaults_into_form()
+        # ウィンドウの大きさが決まってから、左右の分割を既定の比率にする
+        self.root.after(200, self._reset_pane_layout)
 
     # ---------------------------------------------------------- UI 構築
     def _build_layout(self):
@@ -487,17 +695,50 @@ class InvoiceApp:
         top = ttk.Frame(self.root, padding=10)
         top.pack(fill="x")
         ttk.Label(top, text="請求書かんたん作成ツール", font=(UI_FONT_FAMILY, 18, "bold")).pack(side="left")
+
+        # PDFの書式は請求書・領収証のどちらにも効くので、いちばん上で選ぶ。
+        # 選んだ書式は設定ファイルに保存され、次回起動時も同じ書式になる。
+        format_frame = ttk.Frame(top)
+        format_frame.pack(side="left", padx=(30, 0))
+        ttk.Label(format_frame, text="PDFの書式：", font=(UI_FONT_FAMILY, 12, "bold")).pack(side="left")
+        saved_format = self.cfg.get("doc_format", "standard")
+        if saved_format not in DOC_FORMAT_LABELS:
+            saved_format = "standard"
+        self.doc_format_var = tk.StringVar(value=saved_format)
+        self.doc_format_combo = ttk.Combobox(
+            format_frame, values=list(DOC_FORMAT_LABELS.values()), state="readonly",
+            width=24, font=(UI_FONT_FAMILY, 12),
+        )
+        self.doc_format_combo.set(DOC_FORMAT_LABELS[saved_format])
+        self.doc_format_combo.pack(side="left")
+        self.doc_format_combo.bind("<<ComboboxSelected>>", self._on_doc_format_changed)
+        ToolTip(
+            format_frame,
+            "「クラシック」は、これまで使っていたシステムの請求書・領収書と\n"
+            "同じ配置で作成します（宛先は名前と「御中」のみ、但し書きは印字されません）。\n"
+            "選んだ書式は次回からも自動的に使われます。",
+        )
+
         ttk.Button(top, text="？ 使い方ヘルプ", command=self.show_help).pack(side="right")
         ttk.Button(top, text="🔄 アップデート確認", command=self.check_for_updates).pack(side="right", padx=(0, 8))
+        ttk.Button(
+            top, text="↔ 画面の配置を元に戻す", command=self._reset_pane_layout,
+        ).pack(side="right", padx=(0, 8))
 
-        # 画面を左右2カラムに分割：左＝入力フォーム、右＝PDFプレビュー
-        main_paned = ttk.PanedWindow(self.root, orient="horizontal")
+        # 画面を左右2カラムに分割：左＝入力フォーム、右＝PDFプレビュー。
+        # ttk.PanedWindow は仕切り線が細くて掴みにくいため、仕切りの幅を指定できる
+        # tk.PanedWindow を使っている。仕切りをダブルクリックしても元の配置に戻る。
+        self.main_paned = main_paned = tk.PanedWindow(
+            self.root, orient="horizontal", sashwidth=10, sashrelief="raised",
+            sashcursor="sb_h_double_arrow", opaqueresize=True, bd=0,
+        )
         main_paned.pack(fill="both", expand=True)
+        main_paned.bind("<Double-Button-1>", self._reset_pane_layout)
 
         left_pane = ttk.Frame(main_paned)
-        main_paned.add(left_pane, weight=3)
+        main_paned.add(left_pane, minsize=400, stretch="always")
         right_pane = ttk.Frame(main_paned)
-        main_paned.add(right_pane, weight=2)
+        main_paned.add(right_pane, minsize=300, stretch="always")
 
         self._build_preview_pane(right_pane)
 
@@ -521,8 +762,20 @@ class InvoiceApp:
 
         # 入力中は基本的にどこに入力してもプレビューを自動更新する
         self.root.bind_all("<KeyRelease>", self._schedule_preview_update)
+        # 日本語の変換中の文字を、入力欄と同じフォントで表示させる（Windowsのみ）
+        self.root.bind_all("<FocusIn>", _match_ime_font_to_widget, add="+")
 
         body = self.body
+
+        # ---- 出力テスト用：ダミーデータ ----
+        dummy_row = ttk.Frame(body)
+        dummy_row.pack(fill="x", pady=(0, 4))
+        # 1回目で入力、もう一度押すとダミーで入れた欄だけを空欄に戻す（切り替え式）
+        self.dummy_button = ttk.Button(dummy_row, text=DUMMY_BUTTON_FILL, command=self.toggle_dummy_data)
+        self.dummy_button.pack(side="left")
+        self.dummy_status_var = tk.StringVar(value=DUMMY_STATUS_IDLE)
+        self.dummy_status_label = ttk.Label(dummy_row, textvariable=self.dummy_status_var, foreground="#666")
+        self.dummy_status_label.pack(side="left", padx=10)
 
         # ---- ① 発行日 ----
         sec1 = self._section(body, "① 発行日", "この請求書を発行する日付です。通常は今日の日付でかまいません。")
@@ -541,7 +794,7 @@ class InvoiceApp:
         ttk.Label(row, text="  ※ PDFには自動で「令和◯年」の形で印字されます", foreground="#666").grid(row=0, column=6, padx=10)
 
         self.invoice_number = self._labeled_entry(
-            sec1, "請求書番号（任意・領収証にも使われます）", width=20,
+            sec1, "請求書番号", width=20, hint="※ 任意。領収証にも同じ番号が印字されます",
         )
 
         # ---- ② 宛先 ----
@@ -572,7 +825,7 @@ class InvoiceApp:
         self.dest_zip = self._labeled_entry(sec2, "郵便番号", width=15)
         self.dest_addr = self._labeled_entry(sec2, "住所", width=50)
         self.dest_tel = self._labeled_entry(sec2, "電話番号", width=20)
-        self.dest_fax = self._labeled_entry(sec2, "FAX番号（なければ空欄）", width=20)
+        self.dest_fax = self._labeled_entry(sec2, "FAX番号", width=20, hint="※ なければ空欄")
 
         # ---- ③ 請求元（自分の情報・印鑑）----
         sec3 = self._section(
@@ -584,6 +837,7 @@ class InvoiceApp:
         self.issuer_name = self._labeled_entry(sec3, "事務所の名称", width=40)
         self.issuer_representative = self._labeled_entry(sec3, "代表者名", width=30)
         self.issuer_tel = self._labeled_entry(sec3, "電話番号", width=20)
+        self.issuer_fax = self._labeled_entry(sec3, "FAX番号", width=20, hint="※ なければ空欄")
 
         self.show_issuer_var = tk.BooleanVar(value=True)
         show_issuer_chk = ttk.Checkbutton(
@@ -613,12 +867,12 @@ class InvoiceApp:
         show_note_chk.pack(anchor="w", pady=(0, 6))
         ToolTip(show_note_chk, "摘要欄を使わない場合は、チェックを外すと表がすっきりして見やすくなります。\n入力済みの摘要欄の内容が消えるわけではありません。")
 
-        header_row = ttk.Frame(sec4)
-        header_row.pack(anchor="w")
-        for text, w in [("日付", 10), ("品名", 26), ("数量", 6), ("単価", 10), ("金額(自動)", 10), ("消費税", 8), ("摘要", 14)]:
-            ttk.Label(header_row, text=text, width=w, font=(UI_FONT_FAMILY, 10, "bold")).pack(side="left", padx=2)
         self.items_frame = ttk.Frame(sec4)
         self.items_frame.pack(anchor="w", fill="x")
+        _grid_table_header(self.items_frame, [
+            ("日付", "w"), ("品名", "w"), ("数量", "w"), ("単価", "w"),
+            ("金額(自動)", "e"), ("消費税", "w"), ("摘要", "w"),
+        ])
         self.item_rows = []
         btn_row = ttk.Frame(sec4)
         btn_row.pack(anchor="w", pady=(4, 0))
@@ -637,15 +891,14 @@ class InvoiceApp:
 
         # ---- ⑥ 振込先 ----
         sec6 = self._section(body, "⑥ 振込先", "一度入力すれば、次回からも自動的に残ります。")
-        self.bank_holder1 = self._labeled_entry(sec6, "名義人（例：〇〇 代表者名）", width=50)
-        self.bank_holder2 = self._labeled_entry(sec6, "住所・電話など（任意）", width=50)
+        self.bank_holder1 = self._labeled_entry(sec6, "名義人", width=50, hint="例：〇〇 代表者名")
+        self.bank_holder2 = self._labeled_entry(sec6, "住所・電話など", width=50, hint="※ 任意")
 
-        bank_header = ttk.Frame(sec6)
-        bank_header.pack(anchor="w", pady=(6, 0))
-        for text, w in [("金融機関名", 16), ("支店名", 10), ("店番", 6), ("口座種類", 6), ("口座番号", 12)]:
-            ttk.Label(bank_header, text=text, width=w, font=(UI_FONT_FAMILY, 10, "bold")).pack(side="left", padx=2)
         self.banks_frame = ttk.Frame(sec6)
-        self.banks_frame.pack(anchor="w", fill="x")
+        self.banks_frame.pack(anchor="w", fill="x", pady=(6, 0))
+        _grid_table_header(self.banks_frame, [
+            ("金融機関名", "w"), ("支店名", "w"), ("店番", "w"), ("口座種類", "w"), ("口座番号", "w"),
+        ])
         self.bank_rows = []
         ttk.Button(sec6, text="＋ 振込先を追加", command=self.add_bank_row).pack(anchor="w", pady=(4, 0))
 
@@ -691,6 +944,7 @@ class InvoiceApp:
         bottom.pack(fill="x")
         bottom.columnconfigure(0, weight=1)
         bottom.columnconfigure(1, weight=1)
+        bottom.columnconfigure(2, weight=1)
 
         invoice_col = ttk.Frame(bottom)
         invoice_col.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
@@ -707,7 +961,7 @@ class InvoiceApp:
         ).pack(pady=(4, 0), fill="x")
 
         receipt_col = ttk.Frame(bottom)
-        receipt_col.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        receipt_col.grid(row=0, column=1, sticky="nsew", padx=(6, 6))
         receipt_btn = tk.Button(
             receipt_col, text="🧾 領収証PDFを作成する", font=(UI_FONT_FAMILY, 14, "bold"),
             bg="#188038", fg="white", activebackground="#0f6b2c", activeforeground="white",
@@ -717,6 +971,20 @@ class InvoiceApp:
         ttk.Label(
             receipt_col,
             text="今入力している内容（宛先・金額・発行元など）をもとに、領収証PDFを作成します。請求書PDFとは別に、必要な分だけ作成できます。",
+            foreground="#666", wraplength=260, justify="left",
+        ).pack(pady=(4, 0), fill="x")
+
+        both_col = ttk.Frame(bottom)
+        both_col.grid(row=0, column=2, sticky="nsew", padx=(12, 0))
+        both_btn = tk.Button(
+            both_col, text="📑 請求書・領収証を一括作成", font=(UI_FONT_FAMILY, 14, "bold"),
+            bg="#5b4bb7", fg="white", activebackground="#463894", activeforeground="white",
+            height=2, command=self.on_create_both,
+        )
+        both_btn.pack(fill="x")
+        ttk.Label(
+            both_col,
+            text="保存するフォルダを1回選ぶだけで、請求書PDFと領収証PDFの両方をまとめて作成します。",
             foreground="#666", wraplength=260, justify="left",
         ).pack(pady=(4, 0), fill="x")
 
@@ -818,18 +1086,11 @@ class InvoiceApp:
             return
         try:
             if self.preview_doc_var.get() == "receipt":
-                if self.receipt_same_date_var.get():
-                    y, m, d = int(self.date_year.get()), int(self.date_month.get()), int(self.date_day.get())
-                else:
-                    y, m, d = int(self.receipt_year.get()), int(self.receipt_month.get()), int(self.receipt_day.get())
-                doc_date = datetime.date(y, m, d)
-                data = self._collect_receipt_data(doc_date)
-                from pdf_builder import build_receipt_pdf as build_fn
+                data = self._collect_receipt_data(self._receipt_date())
+                build_fn = self._receipt_builder()
             else:
-                y, m, d = int(self.date_year.get()), int(self.date_month.get()), int(self.date_day.get())
-                doc_date = datetime.date(y, m, d)
-                data = self._collect_invoice_data(doc_date)
-                from pdf_builder import build_invoice_pdf as build_fn
+                data = self._collect_invoice_data(self._issue_date())
+                build_fn = self._invoice_builder()
 
             buf = BytesIO()
             build_fn(buf, data)
@@ -854,6 +1115,33 @@ class InvoiceApp:
         except Exception:
             self.preview_status_var.set("入力内容を確認してください（プレビュー未更新）")
 
+    # ---------------------------------------------------------- 書式の切り替え
+    def _on_doc_format_changed(self, _event=None):
+        label = self.doc_format_combo.get()
+        key = next((k for k, v in DOC_FORMAT_LABELS.items() if v == label), "standard")
+        self.doc_format_var.set(key)
+        self.doc_format_combo.selection_clear()  # 選んだ文字が反転表示のまま残らないようにする
+        self.cfg["doc_format"] = key
+        save_config(self.cfg)
+        self._schedule_preview_update()
+
+    # ---------------------------------------------------------- 画面の左右分割
+    def _reset_pane_layout(self, _event=None):
+        """左（入力欄）と右（プレビュー）の幅を、既定の 3：2 に戻す。"""
+        self.root.update_idletasks()
+        width = self.main_paned.winfo_width()
+        if width > 1:
+            self.main_paned.sash_place(0, int(width * 0.6), 0)
+        return "break"
+
+    def _invoice_builder(self):
+        from pdf_builder import build_invoice_pdf, build_invoice_pdf_classic
+        return build_invoice_pdf_classic if self.doc_format_var.get() == "classic" else build_invoice_pdf
+
+    def _receipt_builder(self):
+        from pdf_builder import build_receipt_pdf, build_receipt_pdf_classic
+        return build_receipt_pdf_classic if self.doc_format_var.get() == "classic" else build_receipt_pdf
+
     def _section(self, parent, title, help_text):
         frame = ttk.LabelFrame(parent, text=title, padding=10)
         frame.pack(fill="x", pady=8)
@@ -861,18 +1149,21 @@ class InvoiceApp:
             ttk.Label(frame, text=help_text, foreground="#666", wraplength=880).pack(anchor="w", pady=(0, 6))
         return frame
 
-    def _labeled_entry(self, parent, label, width=30):
+    def _labeled_entry(self, parent, label, width=30, hint=""):
+        """見出し＋入力欄の1行を作る。見出しは幅を揃えるため短くし、
+        「任意」などの補足は hint として入力欄の右に灰色で表示する。"""
         row = ttk.Frame(parent)
         row.pack(anchor="w", pady=2, fill="x")
         ttk.Label(row, text=label, width=22, anchor="w").pack(side="left")
         var = tk.StringVar()
         ttk.Entry(row, textvariable=var, width=width).pack(side="left")
+        if hint:
+            ttk.Label(row, text=hint, foreground="#666").pack(side="left", padx=10)
         return var
 
     # ---------------------------------------------------------- 行操作
     def add_item_row(self):
         row = ItemRow(self.items_frame, self.recalc_total, self.remove_item_row)
-        row.frame.pack(anchor="w", pady=1)
         self.item_rows.append(row)
         self._schedule_preview_update()
 
@@ -880,14 +1171,13 @@ class InvoiceApp:
         if len(self.item_rows) <= 1:
             messagebox.showinfo("お知らせ", "最低1行は必要です。")
             return
-        row.frame.destroy()
+        row.destroy()
         self.item_rows.remove(row)
         self.recalc_total()
         self._schedule_preview_update()
 
     def add_bank_row(self):
         row = BankRow(self.banks_frame, self.remove_bank_row)
-        row.frame.pack(anchor="w", pady=1)
         self.bank_rows.append(row)
         self._schedule_preview_update()
 
@@ -895,7 +1185,7 @@ class InvoiceApp:
         if len(self.bank_rows) <= 1:
             messagebox.showinfo("お知らせ", "最低1行は必要です。")
             return
-        row.frame.destroy()
+        row.destroy()
         self.bank_rows.remove(row)
         self._schedule_preview_update()
 
@@ -919,6 +1209,7 @@ class InvoiceApp:
         self.issuer_name.set(cfg.get("issuer_name", ""))
         self.issuer_representative.set(cfg.get("issuer_representative", ""))
         self.issuer_tel.set(cfg.get("issuer_tel", ""))
+        self.issuer_fax.set(cfg.get("issuer_fax", ""))
         self.show_issuer_var.set(bool(cfg.get("show_issuer_block", True)))
         self.show_note_column_var.set(bool(cfg.get("show_note_column", True)))
         self.bank_holder1.set(cfg.get("bank_holder_line1", ""))
@@ -930,13 +1221,12 @@ class InvoiceApp:
         if banks:
             # 既存の初期行をクリアしてから読み込む
             for r in list(self.bank_rows):
-                r.frame.destroy()
+                r.destroy()
             self.bank_rows.clear()
             for b in banks:
                 if not any(b.values()):
                     continue
                 row = BankRow(self.banks_frame, self.remove_bank_row)
-                row.frame.pack(anchor="w", pady=1)
                 row.name_var.set(b.get("name", ""))
                 row.branch_var.set(b.get("branch", ""))
                 row.code_var.set(b.get("code", ""))
@@ -947,11 +1237,14 @@ class InvoiceApp:
         self._schedule_preview_update()
 
     def _save_current_settings(self):
+        if self._dummy_active:
+            return  # ダミーデータ使用中は、本番の設定・取引先履歴を上書きしない
         self.cfg["issuer_zip"] = self.issuer_zip.get().strip()
         self.cfg["issuer_address"] = self.issuer_address.get().strip()
         self.cfg["issuer_name"] = self.issuer_name.get().strip()
         self.cfg["issuer_representative"] = self.issuer_representative.get().strip()
         self.cfg["issuer_tel"] = self.issuer_tel.get().strip()
+        self.cfg["issuer_fax"] = self.issuer_fax.get().strip()
         self.cfg["show_issuer_block"] = bool(self.show_issuer_var.get())
         self.cfg["show_note_column"] = bool(self.show_note_column_var.get())
         self.cfg["bank_holder_line1"] = self.bank_holder1.get().strip()
@@ -1204,6 +1497,114 @@ class InvoiceApp:
 
         return errors
 
+    # ---------------------------------------------------------- ダミーデータ（出力テスト用）
+    def toggle_dummy_data(self):
+        if self._dummy_filled is None:
+            self.fill_dummy_data()
+        else:
+            self.clear_dummy_data()
+
+    def fill_dummy_data(self):
+        """空いている欄だけにダミーデータを入れる（入力済みの欄はそのまま）。
+        会社印が未設定なら、1:1の「見本之印」の画像を作って使う。
+        入れた場所は self._dummy_filled に記録し、clear_dummy_data で元に戻せるようにする。"""
+        filled = {"fields": [], "remarks": False, "items": [], "added_items": [],
+                  "banks": [], "added_banks": [], "seal": False}
+        for key, value in DUMMY_FIELDS.items():
+            var = getattr(self, key)
+            if not var.get().strip():
+                var.set(value)
+                filled["fields"].append((var, value))
+        if not self.remarks_text.get("1.0", "end").strip():
+            self.remarks_text.insert("1.0", DUMMY_REMARKS)
+            filled["remarks"] = True
+
+        # 品目・振込先は、表がまるごと空のときだけ入れる（途中の行に混ぜない）
+        if all(r.is_blank() for r in self.item_rows):
+            while len(self.item_rows) < len(DUMMY_ITEMS):
+                self.add_item_row()
+                filled["added_items"].append(self.item_rows[-1])
+            for row, values in zip(self.item_rows, DUMMY_ITEMS):
+                for var, value in zip(row.dummy_vars(), values):
+                    var.set(value)
+                filled["items"].append((row, values))
+            self.recalc_total()
+        if all(r.is_blank() for r in self.bank_rows):
+            while len(self.bank_rows) < len(DUMMY_BANKS):
+                self.add_bank_row()
+                filled["added_banks"].append(self.bank_rows[-1])
+            for row, values in zip(self.bank_rows, DUMMY_BANKS):
+                for var, value in zip(row.dummy_vars(), values):
+                    var.set(value)
+                filled["banks"].append((row, values))
+
+        if not self.cfg.get("seal_image_path"):
+            try:
+                from pdf_builder import build_dummy_seal_png
+                build_dummy_seal_png(DUMMY_SEAL_PATH)
+                self.seal_path_label.config(text="（ダミーの会社印「見本之印」を使用中）")
+                filled["seal"] = True
+            except Exception:
+                pass  # 印影が作れなくても、ほかのダミーデータでの出力テストはできる
+
+        self._dummy_filled = filled
+        self._dummy_active = True
+        self.dummy_button.config(text=DUMMY_BUTTON_CLEAR)
+        self.dummy_status_var.set(DUMMY_STATUS_ACTIVE)
+        self.dummy_status_label.config(foreground="#b00020")
+        self._schedule_preview_update()
+
+    def clear_dummy_data(self):
+        """fill_dummy_data で入れた欄を空欄に戻す。ダミーを入れたあとに
+        書き換えた欄は、本物の内容かもしれないので消さずに残す。"""
+        filled = self._dummy_filled
+        for var, value in filled["fields"]:
+            if var.get() == value:
+                var.set("")
+        if filled["remarks"] and self.remarks_text.get("1.0", "end").strip() == DUMMY_REMARKS:
+            self.remarks_text.delete("1.0", "end")
+
+        for rows, entries, added, remove in (
+            (self.item_rows, filled["items"], filled["added_items"], self.remove_item_row),
+            (self.bank_rows, filled["banks"], filled["added_banks"], self.remove_bank_row),
+        ):
+            for row, values in entries:
+                if row in rows and tuple(v.get() for v in row.dummy_vars()) == tuple(values):
+                    row.reset()
+            # ダミーのために増やした行は、空のままなら取り除く
+            for row in added:
+                if row in rows and row.is_blank() and len(rows) > 1:
+                    remove(row)
+        self.recalc_total()
+
+        if filled["seal"]:
+            self.seal_path_label.config(text="（未設定）")
+
+        self._dummy_filled = None
+        self._dummy_active = False
+        self.dummy_button.config(text=DUMMY_BUTTON_FILL)
+        self.dummy_status_var.set(DUMMY_STATUS_IDLE)
+        self.dummy_status_label.config(foreground="#666")
+        self._schedule_preview_update()
+
+    def _current_seal_path(self):
+        """PDFに使う印影画像。会社印が未設定で、ダミーデータ使用中ならダミーの印影を使う。"""
+        seal = self.cfg.get("seal_image_path", "")
+        if not seal and self._dummy_active and os.path.exists(DUMMY_SEAL_PATH):
+            return DUMMY_SEAL_PATH
+        return seal
+
+    # ---------------------------------------------------------- 日付
+    def _issue_date(self):
+        y, m, d = int(self.date_year.get()), int(self.date_month.get()), int(self.date_day.get())
+        return datetime.date(y, m, d)
+
+    def _receipt_date(self):
+        if self.receipt_same_date_var.get():
+            return self._issue_date()
+        y, m, d = int(self.receipt_year.get()), int(self.receipt_month.get()), int(self.receipt_day.get())
+        return datetime.date(y, m, d)
+
     # ---------------------------------------------------------- データ収集（PDF作成・プレビュー共通）
     def _collect_invoice_data(self, issue_date):
         items = [r.as_dict() for r in self.item_rows if not r.is_blank()]
@@ -1221,9 +1622,10 @@ class InvoiceApp:
             "issuer_name": self.issuer_name.get().strip(),
             "issuer_representative": self.issuer_representative.get().strip(),
             "issuer_tel": self.issuer_tel.get().strip(),
+            "issuer_fax": self.issuer_fax.get().strip(),
             "show_issuer_block": bool(self.show_issuer_var.get()),
             "show_note_column": bool(self.show_note_column_var.get()),
-            "seal_path": self.cfg.get("seal_image_path", ""),
+            "seal_path": self._current_seal_path(),
             "items": items,
             "total": total,
             "remarks": self.remarks_text.get("1.0", "end").strip(),
@@ -1254,8 +1656,9 @@ class InvoiceApp:
             "issuer_name": self.issuer_name.get().strip(),
             "issuer_representative": self.issuer_representative.get().strip(),
             "issuer_tel": self.issuer_tel.get().strip(),
+            "issuer_fax": self.issuer_fax.get().strip(),
             "show_issuer_block": bool(self.show_issuer_var.get()),
-            "seal_path": self.cfg.get("seal_image_path", ""),
+            "seal_path": self._current_seal_path(),
         }
 
     # ---------------------------------------------------------- PDF作成
@@ -1267,8 +1670,7 @@ class InvoiceApp:
 
         self._save_current_settings()
 
-        y, m, d = int(self.date_year.get()), int(self.date_month.get()), int(self.date_day.get())
-        issue_date = datetime.date(y, m, d)
+        issue_date = self._issue_date()
         data = self._collect_invoice_data(issue_date)
 
         default_name = f"請求書_{issue_date.strftime('%Y%m%d')}_{data['dest_name'] or '宛先未設定'}.pdf"
@@ -1277,8 +1679,7 @@ class InvoiceApp:
             return
 
         try:
-            from pdf_builder import build_invoice_pdf
-            build_invoice_pdf(save_path, data)
+            self._invoice_builder()(save_path, data)
         except Exception:
             err = traceback.format_exc()
             messagebox.showerror(
@@ -1325,11 +1726,7 @@ class InvoiceApp:
 
         self._save_current_settings()
 
-        if self.receipt_same_date_var.get():
-            y, m, d = int(self.date_year.get()), int(self.date_month.get()), int(self.date_day.get())
-        else:
-            y, m, d = int(self.receipt_year.get()), int(self.receipt_month.get()), int(self.receipt_day.get())
-        receipt_date = datetime.date(y, m, d)
+        receipt_date = self._receipt_date()
         data = self._collect_receipt_data(receipt_date)
 
         default_name = f"領収証_{receipt_date.strftime('%Y%m%d')}_{data['dest_name'] or '宛先未設定'}.pdf"
@@ -1338,8 +1735,7 @@ class InvoiceApp:
             return
 
         try:
-            from pdf_builder import build_receipt_pdf
-            build_receipt_pdf(save_path, data)
+            self._receipt_builder()(save_path, data)
         except Exception:
             err = traceback.format_exc()
             messagebox.showerror(
@@ -1355,37 +1751,108 @@ class InvoiceApp:
 
         self._offer_open_file(save_path, "領収証")
 
+    # ---------------------------------------------------------- 請求書・領収証の一括作成
+    def on_create_both(self):
+        # 請求書・領収証の両方の入力チェックをまとめて表示する（同じ指摘は1回だけ）
+        errors = list(dict.fromkeys(self._validate() + self._validate_receipt()))
+        if errors:
+            messagebox.showwarning("入力内容を確認してください", "\n\n".join(errors))
+            return
+
+        self._save_current_settings()
+
+        issue_date = self._issue_date()
+        receipt_date = self._receipt_date()
+        invoice_data = self._collect_invoice_data(issue_date)
+        receipt_data = self._collect_receipt_data(receipt_date)
+        dest = invoice_data["dest_name"] or "宛先未設定"
+
+        folder = filedialog.askdirectory(
+            title="請求書・領収証PDFを保存するフォルダを選んでください",
+            initialdir=self._default_save_dir(),
+        )
+        if not folder:
+            return
+
+        jobs = [
+            ("請求書", os.path.join(folder, _safe_filename(f"請求書_{issue_date.strftime('%Y%m%d')}_{dest}.pdf")),
+             self._invoice_builder(), invoice_data),
+            ("領収証", os.path.join(folder, _safe_filename(f"領収証_{receipt_date.strftime('%Y%m%d')}_{dest}.pdf")),
+             self._receipt_builder(), receipt_data),
+        ]
+        existing = [os.path.basename(path) for _, path, _, _ in jobs if os.path.exists(path)]
+        if existing and not messagebox.askyesno(
+            "上書きの確認",
+            "同じ名前のファイルがすでにあります。上書きしますか？\n\n" + "\n".join(existing),
+        ):
+            return
+
+        for label, path, build_fn, data in jobs:
+            try:
+                build_fn(path, data)
+            except Exception:
+                err = traceback.format_exc()
+                messagebox.showerror(
+                    "PDFの作成に失敗しました",
+                    f"申し訳ありません、{label}PDFの作成中に問題が発生しました。\n"
+                    "入力内容をもう一度ご確認のうえ、お試しください。\n\n"
+                    "（技術情報）\n" + err[-800:],
+                )
+                return
+
+        self.cfg["last_save_dir"] = folder
+        save_config(self.cfg)
+
+        paths = "\n".join(path for _, path, _, _ in jobs)
+        if messagebox.askyesno(
+            "完成しました",
+            f"請求書PDFと領収証PDFを作成しました。\n\n{paths}\n\n保存したフォルダを開きますか？",
+        ):
+            self._open_path(folder)
+
     # ---------------------------------------------------------- 保存・オープン共通処理
-    def _pick_save_path(self, title, default_name):
+    def _default_save_dir(self):
         default_dir = self.cfg.get("last_save_dir") or os.path.expanduser("~/Desktop")
         if not os.path.isdir(default_dir):
             default_dir = os.path.expanduser("~")
-        # ファイル名に使えない文字を除去
-        for ch in '\\/:*?"<>|':
-            default_name = default_name.replace(ch, "")
+        return default_dir
+
+    def _pick_save_path(self, title, default_name):
         return filedialog.asksaveasfilename(
             title=title,
-            initialdir=default_dir,
-            initialfile=default_name,
+            initialdir=self._default_save_dir(),
+            initialfile=_safe_filename(default_name),
             defaultextension=".pdf",
             filetypes=[("PDFファイル", "*.pdf")],
         )
 
+    def _open_path(self, path):
+        """ファイルやフォルダを、OS標準のアプリで開く。"""
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(path)  # noqa
+            elif sys.platform == "darwin":
+                os.system(f'open "{path}"')
+            else:
+                os.system(f'xdg-open "{path}"')
+        except Exception:
+            messagebox.showinfo("お知らせ", "ファイルは作成されましたが、自動で開けませんでした。\n保存先フォルダから開いてください。")
+
     def _offer_open_file(self, save_path, doc_label):
         if messagebox.askyesno("完成しました", f"{doc_label}PDFを作成しました。\n\n{save_path}\n\nこのファイルを開きますか？"):
-            try:
-                if sys.platform.startswith("win"):
-                    os.startfile(save_path)  # noqa
-                elif sys.platform == "darwin":
-                    os.system(f'open "{save_path}"')
-                else:
-                    os.system(f'xdg-open "{save_path}"')
-            except Exception:
-                messagebox.showinfo("お知らせ", "ファイルは作成されましたが、自動で開けませんでした。\n保存先フォルダから開いてください。")
+            self._open_path(save_path)
+
+
+def _safe_filename(name):
+    """ファイル名に使えない文字を取り除く。"""
+    for ch in '\\/:*?"<>|':
+        name = name.replace(ch, "")
+    return name
 
 
 def main():
     _ensure_bundled_font_on_linux()
+    _setup_linux_input_method()
     root = tk.Tk()
     global UI_FONT_FAMILY
     UI_FONT_FAMILY = _pick_ui_font_family(root)
