@@ -25,7 +25,8 @@ from PySide6.QtWidgets import (
 
 import app_common as common
 from app_common import (
-    APP_CREDIT, APP_DIR, APP_SUPPORT_EMAIL, APP_VERSION, APP_VERSION_NUM, DOC_FORMAT_LABELS,
+    APP_CREDIT, APP_DIR, APP_SUPPORT_EMAIL, APP_VERSION, APP_VERSION_NUM, BLANK_DATE_TEXT,
+    DATE_STYLE_LABELS, DOC_FORMAT_LABELS,
     DUMMY_BANKS, DUMMY_BUTTON_CLEAR, DUMMY_BUTTON_FILL, DUMMY_FIELDS, DUMMY_ITEMS, DUMMY_REMARKS,
     DUMMY_SEAL_PATH, DUMMY_STATUS_ACTIVE, DUMMY_STATUS_IDLE, HELP_TEXT, MAX_DESTINATION_HISTORY,
     UPDATE_MANIFEST_URL, format_yen, load_config, normalize_number, parse_number, safe_filename,
@@ -498,9 +499,12 @@ class MainWindow(QMainWindow):
         # ---- ① 発行日 ----
         form = self._card("① 発行日", "この請求書を発行する日付です。通常は今日の日付でかまいません。")
         self.issue_date_edit = self._date_edit()
+        self.issue_date_style = self._date_style_combo()
         self.issue_reiwa_hint = QLabel(objectName="Hint")
         self.issue_date_edit.dateChanged.connect(self._update_reiwa_hints)
-        form.addRow("発行日", self._hbox(self.issue_date_edit, self.issue_reiwa_hint, stretch=True))
+        self.issue_date_style.currentIndexChanged.connect(self._update_reiwa_hints)
+        form.addRow("発行日", self._hbox(self.issue_date_edit, self.issue_date_style, stretch=True))
+        form.addRow("", self.issue_reiwa_hint)
         self._line(form, "請求書番号", "invoice_number", width=220,
                    hint="任意。領収証にも同じ番号が印字されます")
 
@@ -619,10 +623,13 @@ class MainWindow(QMainWindow):
         self.receipt_same_check.setChecked(True)
         form.addRow("", self.receipt_same_check)
         self.receipt_date_edit = self._date_edit()
+        self.receipt_date_style = self._date_style_combo()
         self.receipt_reiwa_hint = QLabel(objectName="Hint")
         self.receipt_date_edit.dateChanged.connect(self._update_reiwa_hints)
+        self.receipt_date_style.currentIndexChanged.connect(self._update_reiwa_hints)
         self.receipt_same_check.toggled.connect(self._update_reiwa_hints)
-        form.addRow("領収日", self._hbox(self.receipt_date_edit, self.receipt_reiwa_hint, stretch=True))
+        form.addRow("領収日", self._hbox(self.receipt_date_edit, self.receipt_date_style, stretch=True))
+        form.addRow("", self.receipt_reiwa_hint)
         self.receipt_note = QLineEdit("お品代")
         form.addRow("但し書き（〜として）", self.receipt_note)
 
@@ -789,6 +796,19 @@ class MainWindow(QMainWindow):
         edit.setFixedWidth(180)
         return edit
 
+    @staticmethod
+    def _date_style_combo():
+        """日付の右に置く「日付を印字する／空欄にする／印字しない」のプルダウン。"""
+        combo = QComboBox()
+        for key, label in DATE_STYLE_LABELS.items():
+            combo.addItem(label, key)
+        combo.setToolTip(
+            f"「空欄にする（手書き用）」… 数字の部分を空けて「{BLANK_DATE_TEXT}」と印字します。\n"
+            "「日付を印字しない」… 日付の欄そのものを印字しません。\n"
+            "この選択は保存されず、次にアプリを開いたときは「日付を印字する」に戻ります。"
+        )
+        return combo
+
     # ============================================================ 変更の検知・プレビュー
     def _connect_change_signals(self):
         """入力が変わったら（少し待ってから）プレビューを更新する。"""
@@ -799,6 +819,8 @@ class MainWindow(QMainWindow):
             check.toggled.connect(self._schedule_preview)
         for edit in (self.issue_date_edit, self.receipt_date_edit):
             edit.dateChanged.connect(self._schedule_preview)
+        for combo in (self.issue_date_style, self.receipt_date_style):
+            combo.currentIndexChanged.connect(self._schedule_preview)
         self.items_table.changed.connect(self._schedule_preview)
         self.banks_table.changed.connect(self._schedule_preview)
 
@@ -841,11 +863,21 @@ class MainWindow(QMainWindow):
         except Exception:
             self.preview_status.setText("入力内容を確認してください（プレビュー未更新）")
 
+    @staticmethod
+    def _date_hint(date, style):
+        if style == "none":
+            return "日付は印字されません"
+        text = BLANK_DATE_TEXT if style == "blank" else to_reiwa(date)
+        return f"「{text}」と印字されます"
+
     def _update_reiwa_hints(self, *_):
-        self.issue_reiwa_hint.setText(f"PDFには「{to_reiwa(self._issue_date())}」と印字されます")
+        # 「日付を印字する」以外を選んでいるときは、カレンダーは使わないので触れないようにする
+        self.issue_date_edit.setEnabled(self._issue_date_style() == "print")
+        self.issue_reiwa_hint.setText("PDFには" + self._date_hint(self._issue_date(), self._issue_date_style()))
         same = self.receipt_same_check.isChecked()
-        self.receipt_date_edit.setEnabled(not same)
-        self.receipt_reiwa_hint.setText(f"「{to_reiwa(self._receipt_date())}」と印字されます")
+        self.receipt_date_style.setEnabled(not same)
+        self.receipt_date_edit.setEnabled(not same and self._receipt_date_style() == "print")
+        self.receipt_reiwa_hint.setText(self._date_hint(self._receipt_date(), self._receipt_date_style()))
 
     # ============================================================ 書式・配置
     def _on_doc_format_changed(self, *_):
@@ -1256,6 +1288,20 @@ class MainWindow(QMainWindow):
             return self._issue_date()
         return self.receipt_date_edit.date().toPython()
 
+    def _issue_date_style(self):
+        """発行日の印字のしかた（"print"／"blank"／"none"）。"""
+        return self.issue_date_style.currentData()
+
+    def _receipt_date_style(self):
+        if self.receipt_same_check.isChecked():
+            return self._issue_date_style()
+        return self.receipt_date_style.currentData()
+
+    @staticmethod
+    def _filename_date(date, style):
+        """保存ファイル名に入れる日付（例：_20261118）。日付を印字しないときは付けない。"""
+        return f"_{date.strftime('%Y%m%d')}" if style == "print" else ""
+
     def _items(self):
         items = []
         for v in self._item_rows():
@@ -1281,8 +1327,8 @@ class MainWindow(QMainWindow):
                           "type": acc_type or "普通", "number": number})
         return banks
 
-    def _common_data(self, doc_date):
-        data = {"issue_date": doc_date}
+    def _common_data(self, doc_date, date_style):
+        data = {"issue_date": doc_date, "date_style": date_style}
         for key in ("invoice_number", "dest_name", "dest_zip", "dest_addr", "dest_tel", "dest_fax",
                     "issuer_zip", "issuer_address", "issuer_name", "issuer_representative",
                     "issuer_tel", "issuer_fax"):
@@ -1295,7 +1341,7 @@ class MainWindow(QMainWindow):
         return data
 
     def _collect_invoice_data(self, issue_date):
-        data = self._common_data(issue_date)
+        data = self._common_data(issue_date, self._issue_date_style())
         data.update({
             "remarks": self.remarks_edit.toPlainText().strip(),
             "bank_holder1": self.f["bank_holder1"].text().strip(),
@@ -1305,7 +1351,7 @@ class MainWindow(QMainWindow):
         return data
 
     def _collect_receipt_data(self, receipt_date):
-        data = self._common_data(receipt_date)
+        data = self._common_data(receipt_date, self._receipt_date_style())
         data.update({
             "tax_total": sum(self._row_tax(v) for v in self._item_rows()),
             "remarks": self.receipt_note.text().strip() or "お品代",
@@ -1328,13 +1374,13 @@ class MainWindow(QMainWindow):
             )
             return False
 
-    def _create_single(self, label, errors, date, collect, builder):
+    def _create_single(self, label, errors, date, date_style, collect, builder):
         if errors:
             show_warning(self, "入力内容を確認してください", "\n\n".join(errors))
             return
         self._save_current_settings()
         data = collect(date)
-        default_name = f"{label}_{date.strftime('%Y%m%d')}_{data['dest_name'] or '宛先未設定'}.pdf"
+        default_name = f"{label}{self._filename_date(date, date_style)}_{data['dest_name'] or '宛先未設定'}.pdf"
         path, _ = QFileDialog.getSaveFileName(
             self, f"{label}PDFの保存先を選んでください",
             os.path.join(self._default_save_dir(), safe_filename(default_name)),
@@ -1352,11 +1398,11 @@ class MainWindow(QMainWindow):
             self._open_path(path)
 
     def on_create_pdf(self):
-        self._create_single("請求書", self._validate(), self._issue_date(),
+        self._create_single("請求書", self._validate(), self._issue_date(), self._issue_date_style(),
                             self._collect_invoice_data, self._invoice_builder())
 
     def on_create_receipt(self):
-        self._create_single("領収証", self._validate_receipt(), self._receipt_date(),
+        self._create_single("領収証", self._validate_receipt(), self._receipt_date(), self._receipt_date_style(),
                             self._collect_receipt_data, self._receipt_builder())
 
     def on_create_both(self):
@@ -1378,9 +1424,11 @@ class MainWindow(QMainWindow):
         if not folder:
             return
         jobs = [
-            ("請求書", os.path.join(folder, safe_filename(f"請求書_{issue_date.strftime('%Y%m%d')}_{dest}.pdf")),
+            ("請求書", os.path.join(folder, safe_filename(
+                f"請求書{self._filename_date(issue_date, invoice_data['date_style'])}_{dest}.pdf")),
              self._invoice_builder(), invoice_data),
-            ("領収証", os.path.join(folder, safe_filename(f"領収証_{receipt_date.strftime('%Y%m%d')}_{dest}.pdf")),
+            ("領収証", os.path.join(folder, safe_filename(
+                f"領収証{self._filename_date(receipt_date, receipt_data['date_style'])}_{dest}.pdf")),
              self._receipt_builder(), receipt_data),
         ]
         existing = [os.path.basename(path) for _, path, _, _ in jobs if os.path.exists(path)]
