@@ -13,10 +13,10 @@ import shutil
 import sys
 import unicodedata
 
-APP_VERSION_NUM = "1.6"
+APP_VERSION_NUM = "1.7"
 APP_VERSION = f"Version {APP_VERSION_NUM}"
-APP_CREDIT = "ClaudeCord & 井上"
-APP_SUPPORT_EMAIL = "satoshi29333104@gmail.com"
+APP_CREDIT = "ClaudeCord & uhgm"
+APP_SUPPORT_EMAIL = "satoshi2933@tokiwamatsu.net"
 
 # GitHubの「Releases」機能から、最新版の情報を自動取得するURL。
 # 詳しい手順（Releaseの出し方）は updater.py の一番上のコメントに書いてあります。
@@ -113,6 +113,16 @@ DOC_FORMAT_LABELS = {
     "standard": "モダン",
     "classic": "クラシック",
 }
+
+# 発行日・領収日の印字のしかた（PDFに渡す data["date_style"] の値 → プルダウンに出す名前）。
+# 値は pdf_builder.py の DATE_STYLE_* と同じにしておくこと。
+# 設定ファイルには保存しない（日付なしの請求書をうっかり出さないよう、毎回「印字する」から始める）。
+DATE_STYLE_LABELS = {
+    "print": "日付を印字する",
+    "blank": "空欄にする（手書き用）",
+    "none": "日付を印字しない",
+}
+BLANK_DATE_TEXT = "令和　　年　　月　　日"  # 「空欄にする」のときの印字（pdf_builder.py と同じ）
 
 
 def load_config():
@@ -246,6 +256,13 @@ HELP_TEXT = """【使い方ガイド】
   Q. 発行日を変えたい
   A. 「① 発行日」の日付の右にある ▼ を押すと、カレンダーから選べます。
      PDFには自動で「令和◯年◯月◯日」の形で印字されます。
+
+  Q. 日付を空けておいて、あとから手書きで記入したい
+  A. 日付の右のプルダウンで「空欄にする（手書き用）」を選ぶと、
+     「令和　　年　　月　　日」のように数字の部分を空けて印字します。
+     「日付を印字しない」を選ぶと、日付の欄そのものを印字しません。
+     領収日も「⑦ 領収証」欄で同じように選べます。
+     この選択は保存されず、次にアプリを開いたときは「日付を印字する」に戻ります。
 
   Q. 品目の行が足りない／いらない行を消したい
   A. 表の下の「＋ 行を追加」ボタンで1行増えます。

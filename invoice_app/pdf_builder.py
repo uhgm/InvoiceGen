@@ -77,6 +77,27 @@ def to_reiwa(dt: datetime.date) -> str:
     return f"令和{reiwa_year}年{dt.month}月{dt.day}日"
 
 
+# 日付の印字のしかた（data["date_style"]）。画面のプルダウン（app_common.DATE_STYLE_LABELS）と対応。
+DATE_STYLE_PRINT = "print"  # 日付を印字する（指定がなければこれ）
+DATE_STYLE_BLANK = "blank"  # 数字の部分を空けて印字する（あとから手書きで記入できるように）
+DATE_STYLE_NONE = "none"    # 日付を何も印字しない
+BLANK_DATE_TEXT = "令和　　年　　月　　日"
+
+
+def _date_style(data: dict) -> str:
+    return data.get("date_style", DATE_STYLE_PRINT)
+
+
+def _date_text(data: dict) -> str:
+    """モダン書式の右上に印字する日付の文字列。何も印字しないときは空文字。"""
+    style = _date_style(data)
+    if style == DATE_STYLE_BLANK:
+        return BLANK_DATE_TEXT
+    if style == DATE_STYLE_NONE:
+        return ""
+    return to_reiwa(data["issue_date"])
+
+
 def fmt_yen(v):
     try:
         return "￥{:,}".format(int(round(float(v))))
@@ -304,9 +325,11 @@ def build_invoice_pdf(save_path, data: dict):
         y -= 17
 
     # ---------------- 発行日（右上） ----------------
-    date_str = to_reiwa(data["issue_date"])
-    c.setFont(FONT_REGULAR, 12)
-    c.drawRightString(x1, y, date_str)
+    # 印字しない場合も行の高さは確保して、ほかの位置がずれないようにする
+    date_str = _date_text(data)
+    if date_str:
+        c.setFont(FONT_REGULAR, 12)
+        c.drawRightString(x1, y, date_str)
     y -= 24
 
     block_top = y  # 左：宛先ブロック／右：請求元プロファイルブロック、共通の開始位置
@@ -415,7 +438,8 @@ def build_receipt_pdf(save_path, data: dict):
     宛先ブロック（左）＋発行元ブロック（右）→本文）にしている。
 
     data の主なキー：
-      issue_date（領収日）, invoice_number（請求書と共通の番号・任意）,
+      issue_date（領収日）, date_style（日付の印字のしかた。DATE_STYLE_*・任意）,
+      invoice_number（請求書と共通の番号・任意）,
       dest_name/dest_zip/dest_addr/dest_tel/dest_fax（宛先。請求書と共通）,
       total（金額）, tax_total（内消費税額・任意）,
       remarks（但し書き）, issuer_*（発行元情報）, seal_path, show_issuer_block
@@ -437,9 +461,11 @@ def build_receipt_pdf(save_path, data: dict):
         y -= 17
 
     # ---------------- 領収日（右上） ----------------
-    date_str = to_reiwa(data["issue_date"])
-    c.setFont(FONT_REGULAR, 12)
-    c.drawRightString(x1, y, date_str)
+    # 印字しない場合も行の高さは確保して、ほかの位置がずれないようにする
+    date_str = _date_text(data)
+    if date_str:
+        c.setFont(FONT_REGULAR, 12)
+        c.drawRightString(x1, y, date_str)
     y -= 24
 
     block_top = y  # 左：宛先ブロック／右：発行元プロファイルブロック、共通の開始位置（請求書と同じ構成）
@@ -646,11 +672,18 @@ def _draw_classic_header(c, title, message, data):
     if data.get("invoice_number"):
         c.setFont(FONT_REGULAR, 10.5)
         c.drawString(x0, y, f"No. {data['invoice_number']}")
-    dt = data["issue_date"]
-    c.setFont(FONT_REGULAR, 12)
-    c.drawRightString(x1 - 150, y, f"{_classic_era_year(dt)}年")
-    c.drawRightString(x1 - 75, y, f"{dt.month}月")
-    c.drawRightString(x1, y, f"{dt.day}日")
+    style = _date_style(data)
+    if style != DATE_STYLE_NONE:
+        if style == DATE_STYLE_BLANK:
+            # 数字の部分を空けて「年」「月」「日」だけを同じ位置に印字する（手書き用）
+            year = month = day = ""
+        else:
+            dt = data["issue_date"]
+            year, month, day = _classic_era_year(dt), dt.month, dt.day
+        c.setFont(FONT_REGULAR, 12)
+        c.drawRightString(x1 - 150, y, f"{year}年")
+        c.drawRightString(x1 - 75, y, f"{month}月")
+        c.drawRightString(x1, y, f"{day}日")
     y -= 27
 
     # ---------------- 宛先 + 御中（左側。見本は住所なし、名前だけ） ----------------
