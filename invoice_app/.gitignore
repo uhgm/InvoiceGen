@@ -23,6 +23,7 @@ dist/
 *.spec
 *.deb
 invoice-generator-tool-windows-x64.zip
+invoice-generator-tool-windows-setup.exe
 
 
 # 個人設定のフォルダが作れないPCでは、アプリのフォルダに作られることがある

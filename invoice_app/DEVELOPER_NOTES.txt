@@ -13,9 +13,9 @@ Full setup + release instructions are written at the top of updater.py
 in this folder — read that docstring, it's the source of truth. The
 step-by-step release checklist is in RELEASE_WORKFLOW.txt.
 
-★ Since v1.4, releases also carry the compiled binaries (Windows exe
-zip, Linux .deb) alongside the source zip — see "Compiled binary
-builds" below. check_for_update() in updater.py deliberately looks for
+★ Since v1.4, releases also carry the compiled binaries (Windows
+installer since v1.9 — an exe zip before that — and Linux .deb)
+alongside the source zip — see "Compiled binary builds" below. check_for_update() in updater.py deliberately looks for
 an asset literally named invoice_generator_tool.zip (falling back to
 "first .zip" only if that exact name is missing) — it must never just
 grab "the first .zip", because GitHub returns release assets sorted
@@ -220,21 +220,47 @@ path and what the in-app updater uses (see the warning above).
     invoice-generator-tool_<version>_amd64.deb. PyInstaller doesn't
     cross-compile, so this can't be built for Windows from Linux or
     vice versa.
-  - Windows exe: built by GitHub Actions
+  - Windows installer: built by GitHub Actions
     (.github/workflows/build-windows-exe.yml) on a windows-latest
-    runner, so no Windows machine is needed. Publishing a Release builds
-    the exe from that tag and attaches invoice-generator-tool-windows-x64.zip
-    to it automatically; to (re)build for an existing tag, run the
-    workflow by hand (Actions → "Windows exe ビルド" → Run workflow, or
-    `gh workflow run build-windows-exe.yml -f tag=v1.x`). It fails on
-    purpose if the tag doesn't match APP_VERSION_NUM, and it launches
-    the exe and waits for the "Version x.y" main window before attaching
-    anything. PRs touching invoice_app/ run the build + launch test only.
+    runner, so no Windows machine is needed. PyInstaller (--onedir)
+    makes dist\invoice-generator-tool\ (exe + _internal\), then Inno
+    Setup (installer.iss) wraps it into
+    invoice-generator-tool-windows-setup.exe. Publishing a Release builds
+    it from that tag and attaches it automatically; to (re)build for an
+    existing tag (v1.9 or later — older tags have no installer.iss), run
+    the workflow by hand (Actions → "Windows exe ビルド" → Run workflow,
+    or `gh workflow run build-windows-exe.yml -f tag=v1.x`).
+    Before attaching anything the workflow checks, on a real Windows VM:
+    tag == APP_VERSION_NUM; the exe opens its "Version x.y" window; a
+    silent install lands in %LOCALAPPDATA%\Programs\InvoiceGeneratorTool,
+    makes a desktop shortcut and auto-launches the app; and the in-app
+    update path (updater.check_for_update → download_installer →
+    launch_installer, via .github/scripts/test_windows_update.py against
+    a fake "v99.0" release) closes the running app, upgrades in place and
+    relaunches exactly one copy. After attaching, it re-downloads the
+    asset the same way the app does and checks it against GitHub's
+    SHA-256 digest. PRs run everything except the attach steps.
     The PyInstaller flags there must stay in sync with build_exe.bat,
-    which still works for building by hand on a Windows machine.
-    Produces dist\invoice-generator-tool\ (a folder — ship the whole
-    thing, not just the .exe, since PyInstaller's --onedir puts all the
-    DLLs/data in a sibling _internal\ folder); the zip wraps that folder.
+    which still works for building by hand on a Windows machine (it also
+    runs ISCC if Inno Setup 6 is installed).
+
+    How the in-app update works for the exe build (updater.py,
+    MainWindow._update_with_installer): when sys.frozen on Windows, the
+    "🔄 アップデート確認" button looks for an asset named exactly
+    WINDOWS_INSTALLER_NAME in the latest release, downloads it to
+    %TEMP%\invoice_setup_*\ with a progress dialog, verifies size,
+    GitHub's sha256 digest and the "MZ" header, then starts it detached
+    with /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS and quits.
+    Inno closes any straggling instance, replaces {app} (deleting the old
+    _internal\ first), and its skipifnotsilent [Run] entry relaunches the
+    app. The install is per-user (PrivilegesRequired=lowest), so there is
+    no UAC prompt. The install log is %TEMP%\invoice_setup_*\install.log.
+    Never change AppId in installer.iss (upgrades would install a second
+    copy), and keep OutputBaseFilename == WINDOWS_INSTALLER_NAME == the
+    workflow's INSTALLER. Settings stay in %APPDATA%\InvoiceGeneratorTool
+    and survive install/upgrade/uninstall. If the release has no installer
+    attached (e.g. the workflow is still running), the app says it can't
+    update automatically and offers to open the release page instead.
 
 Attach both to the GitHub Release alongside invoice_generator_tool.zip
 when you have them (`gh release upload v1.x <files...>` or drag them
@@ -244,8 +270,13 @@ source zip's name anything other than exactly invoice_generator_tool.zip
 
 Notes / limitations (deliberately not handled, per your "doesn't need
 to be robust" request):
-  - No checksum/signature verification of the downloaded zip — the repo
-    should stay public-but-trusted (only you push to it).
-  - The app just closes after applying an update; she double-clicks the
-    desktop icon again to relaunch. No fancy self-restart.
+  - No checksum/signature verification of the downloaded source zip —
+    the repo should stay public-but-trusted (only you push to it). (The
+    Windows installer is checked against GitHub's sha256 digest, but it
+    isn't code-signed, so a browser download shows a SmartScreen warning
+    the first time; in-app updates don't, since urllib downloads don't
+    get the Mark of the Web.)
+  - The source-zip (Python) build just closes after applying an update;
+    she double-clicks the desktop icon again to relaunch. (The Windows
+    installer build does relaunch itself — see above.)
   - No delta updates — every update re-downloads the whole zip.

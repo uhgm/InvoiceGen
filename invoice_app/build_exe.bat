@@ -9,7 +9,10 @@ REM 使い方： このファイルをダブルクリック、またはコマン
 REM     build_exe.bat
 REM を実行してください。
 REM 実行すると dist\invoice-generator-tool\ フォルダの中に
-REM invoice-generator-tool.exe が作られます（そのフォルダごと配布してください）。
+REM invoice-generator-tool.exe が作られます。
+REM Inno Setup 6 が入っていれば、配布用のインストーラー
+REM dist\invoice-generator-tool-windows-setup.exe も作ります（installer.iss）。
+REM ふだんは GitHub Actions が自動で作るので、このファイルは手で作りたいとき用です。
 cd /d "%~dp0"
 
 echo =============================================
@@ -32,7 +35,7 @@ pause
 exit /b 1
 
 :found
-echo [1/3] ビルド専用の仮想環境を用意しています（.build-venv）...
+echo [1/4] ビルド専用の仮想環境を用意しています（.build-venv）...
 if not exist ".build-venv" (
     %PYCMD% -m venv .build-venv
 )
@@ -44,7 +47,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [2/3] PyInstallerでexeを作成しています...
+echo [2/4] PyInstallerでexeを作成しています...
 rmdir /s /q build 2>nul
 rmdir /s /q dist 2>nul
 del /q invoice-generator-tool.spec 2>nul
@@ -55,7 +58,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/3] 完了
+echo [3/4] インストーラーを作っています（Inno Setup 6 が入っている場合だけ）...
+set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+if not exist "%ISCC%" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if not exist "%ISCC%" (
+    echo   Inno Setup 6 が見つからないので、インストーラーは作りません（exeだけ作りました）。
+    goto :done
+)
+for /f "usebackq delims=" %%v in (`".build-venv\Scripts\python.exe" -c "import app_common; print(app_common.APP_VERSION_NUM)"`) do set "APPVER=%%v"
+"%ISCC%" /DAppVersion=%APPVER% installer.iss
+if errorlevel 1 (
+    echo [ERROR] インストーラーの作成に失敗しました。
+    pause
+    exit /b 1
+)
+
+:done
+echo [4/4] 完了
 echo.
 echo =============================================
 echo   ビルド完了！
@@ -63,6 +82,7 @@ echo =============================================
 echo.
 echo dist\invoice-generator-tool\ フォルダの中に
 echo invoice-generator-tool.exe ができました。
-echo このフォルダごと（中身をバラさずに）配布してください。
+echo Inno Setup 6 があれば、dist\invoice-generator-tool-windows-setup.exe
+echo （配布用のインストーラー）もできています。
 echo.
 pause
