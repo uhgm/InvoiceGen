@@ -160,7 +160,16 @@ jobs:
           $shell = New-Object -ComObject WScript.Shell
           $desktop = [Environment]::GetFolderPath("Desktop")
           $lnk = Get-ChildItem $desktop -Filter *.lnk | Where-Object { $shell.CreateShortcut($_.FullName).TargetPath -eq $installed }
-          if (-not $lnk) { throw "Desktop shortcut to $installed not found in $desktop" }
+          if (-not $lnk) {
+            Write-Host "Desktop ($desktop):"
+            Get-ChildItem $desktop -Force | ForEach-Object { Write-Host "  $($_.Name)" }
+            Get-ChildItem $desktop, "$env:PUBLIC\Desktop" -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "  $($_.FullName) -> '$($shell.CreateShortcut($_.FullName).TargetPath)'"
+            }
+            Write-Host "Install log (icons/tasks):"
+            Select-String -Path $log1 -Pattern "lnk|icon|task|Desktop|shortcut" | ForEach-Object { Write-Host "  $($_.Line)" }
+            throw "Desktop shortcut to $installed not found in $desktop"
+          }
           Write-Host "  shortcut: $($lnk.FullName)"
 
           Write-Host "== 3. インストールが終わると、自動でアプリが開くか"
