@@ -157,17 +157,21 @@ jobs:
           Write-Host "  installed: $installed"
 
           Write-Host "== 2. デスクトップのアイコンが、インストールしたexeを指しているか"
+          # WScript.Shell は、英語版Windowsでは日本語の名前の .lnk を読めない（空の値が返る）ので、
+          # 英字の名前に一時コピーしてから、指している先を読む。
           $shell = New-Object -ComObject WScript.Shell
+          function Get-LinkTarget([string]$path) {
+            $tmp = Join-Path $env:RUNNER_TEMP "check-shortcut.lnk"
+            Copy-Item -LiteralPath $path -Destination $tmp -Force
+            $shell.CreateShortcut($tmp).TargetPath
+          }
           $desktop = [Environment]::GetFolderPath("Desktop")
-          $lnk = Get-ChildItem $desktop -Filter *.lnk | Where-Object { $shell.CreateShortcut($_.FullName).TargetPath -eq $installed }
+          $lnk = Get-ChildItem $desktop -Filter *.lnk | Where-Object { (Get-LinkTarget $_.FullName) -eq $installed }
           if (-not $lnk) {
             Write-Host "Desktop ($desktop):"
-            Get-ChildItem $desktop -Force | ForEach-Object { Write-Host "  $($_.Name)" }
-            Get-ChildItem $desktop, "$env:PUBLIC\Desktop" -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object {
-              Write-Host "  $($_.FullName) -> '$($shell.CreateShortcut($_.FullName).TargetPath)'"
-            }
-            Write-Host "Install log (icons/tasks):"
-            Select-String -Path $log1 -Pattern "lnk|icon|task|Desktop|shortcut" | ForEach-Object { Write-Host "  $($_.Line)" }
+            Get-ChildItem $desktop -Filter *.lnk | ForEach-Object { Write-Host "  $($_.Name) -> '$(Get-LinkTarget $_.FullName)'" }
+            Write-Host "Install log (icons):"
+            Select-String -Path $log1 -Pattern "lnk" | ForEach-Object { Write-Host "  $($_.Line)" }
             throw "Desktop shortcut to $installed not found in $desktop"
           }
           Write-Host "  shortcut: $($lnk.FullName)"
