@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 import app_common as common
+import dest_import
 from app_common import (
     APP_CREDIT, APP_DIR, APP_SUPPORT_EMAIL, APP_VERSION, APP_VERSION_NUM, BLANK_DATE_TEXT,
     DATE_STYLE_LABELS, DOC_FORMAT_LABELS,
@@ -512,7 +513,8 @@ class MainWindow(QMainWindow):
         form = self._card(
             "② 宛先（請求する相手）",
             "請求書を送る相手の情報です。「御中」は自動で印字されるので入力不要です。\n"
-            "一度入力した取引先は自動的に記憶され、次回から名前を選ぶだけで住所などが自動入力されます。",
+            "一度入力した取引先は自動的に記憶され、次回から名前を選ぶだけで住所などが自動入力されます。\n"
+            "取引先の一覧（Excel・CSV・テキストのファイル）があれば、「ファイルから取り込む」でまとめて登録できます。",
         )
         self.dest_combo = QComboBox()
         self.dest_combo.setEditable(True)
@@ -529,9 +531,13 @@ class MainWindow(QMainWindow):
             lambda: self._on_dest_name_selected(self.dest_combo.currentText())
         )
         self.f["dest_name"] = self.dest_combo.lineEdit()
+        import_btn = QPushButton("📥 ファイルから取り込む")
+        import_btn.setToolTip("Excel（.xlsx）・CSV・テキストのファイルから、取引先の一覧をまとめて登録します。")
+        import_btn.clicked.connect(lambda: self.import_destinations())
         manage_btn = QPushButton("取引先の履歴を管理")
         manage_btn.clicked.connect(self.manage_destinations)
-        form.addRow("会社名・団体名", self._hbox(self.dest_combo, manage_btn, expand_first=True))
+        form.addRow("会社名・団体名",
+                    self._hbox(self.dest_combo, import_btn, manage_btn, expand_first=True))
         self._line(form, "郵便番号", "dest_zip", width=160, placeholder="例：100-0001")
         self._line(form, "住所", "dest_addr")
         form.addRow("電話番号", self._tel_fax_row("dest_tel", "dest_fax"))
@@ -1036,13 +1042,119 @@ class MainWindow(QMainWindow):
             self._refresh_destination_list()
             _reload()
 
+        def _import():
+            if self.import_destinations(dlg):
+                _reload()
+
         _reload()
+        import_btn = QPushButton("📥 ファイルから取り込む")
+        import_btn.clicked.connect(_import)
         delete_btn = QPushButton("選んだ取引先を削除")
         delete_btn.clicked.connect(_delete_selected)
         close_btn = QPushButton("閉じる")
         close_btn.clicked.connect(dlg.accept)
-        lay.addWidget(self._hbox(delete_btn, close_btn, stretch_at=1))
+        lay.addWidget(self._hbox(import_btn, delete_btn, close_btn, stretch_at=2))
         dlg.exec()
+
+    # ---- ファイルからの取り込み ----
+    def import_destinations(self, parent=None):
+        """Excel・CSV・テキストのファイルから取引先をまとめて履歴に登録する。
+        取り込んだら True を返す（キャンセル・失敗なら False）。"""
+        parent = parent or self
+        start_dir = self.cfg.get("last_import_dir") or os.path.expanduser("~")
+        path, _ = QFileDialog.getOpenFileName(
+            parent, "取引先の一覧ファイルを選んでください", start_dir, dest_import.FILE_DIALOG_FILTER,
+        )
+        if not path:
+            return False
+        try:
+            result = dest_import.load_destinations(path)
+        except dest_import.ImportError_ as e:
+            show_warning(parent, "取り込めませんでした", str(e))
+            return False
+        except Exception:
+            show_error(parent, "取り込めませんでした",
+                       "ファイルを読み込む途中で問題が起きました。\n\n（技術情報）\n"
+                       + traceback.format_exc()[-600:])
+            return False
+
+        existing = self.cfg.get("destinations", [])
+        merged, statuses = dest_import.merge_destinations(existing, result.entries)
+        if not self._confirm_import(parent, path, result, statuses, len(merged)):
+            return False
+
+        self.cfg["destinations"] = merged[:MAX_DESTINATION_HISTORY]
+        self.cfg["last_import_dir"] = os.path.dirname(path)
+        save_config(self.cfg)
+        self._refresh_destination_list()
+        counts = {k: statuses.count(k) for k in dest_import.STATUS_LABELS}
+        show_info(parent, "取り込みました",
+                  f"取引先を取り込みました。\n\n"
+                  f"　新しく追加：{counts[dest_import.STATUS_NEW]}件\n"
+                  f"　内容を更新：{counts[dest_import.STATUS_UPDATE]}件\n"
+                  f"　登録済み（変更なし）：{counts[dest_import.STATUS_SAME]}件\n\n"
+                  "「② 宛先」の会社名・団体名の欄で、名前を入力するか ▼ を押すと選べます。")
+        return True
+
+    def _confirm_import(self, parent, path, result, statuses, merged_count):
+        """取り込む内容を表で見せて、取り込むかどうかを確認する。"""
+        dlg = QDialog(parent)
+        dlg.setWindowTitle("取引先の取り込み（確認）")
+        dlg.resize(860, 560)
+        lay = QVBoxLayout(dlg)
+
+        counts = {k: statuses.count(k) for k in dest_import.STATUS_LABELS}
+        source = os.path.basename(path)
+        if result.sheet_name:
+            source += f"（シート「{result.sheet_name}」）"
+        lines = [
+            f"{source} から、{len(result.entries)}件の取引先が見つかりました。",
+            f"新しく追加：{counts[dest_import.STATUS_NEW]}件　／　"
+            f"内容を更新：{counts[dest_import.STATUS_UPDATE]}件　／　"
+            f"登録済み（変更なし）：{counts[dest_import.STATUS_SAME]}件",
+        ]
+        if result.has_header:
+            found = "、".join(f"{dest_import.FIELD_LABELS[f]}＝「{result.columns[f]}」"
+                             for f in dest_import.FIELDS if f in result.columns)
+            lines.append(f"読み取った列：{found}")
+        else:
+            lines.append("見出し（「会社名」「住所」など）の行がなかったので、左の列から順に "
+                         "会社名・郵便番号・住所・電話番号・FAX番号 として読み取りました。")
+        lines.append("すでに登録されている取引先は、ファイルで入っている項目だけを書き換えます"
+                     "（ファイル側が空欄の項目は、今の内容のまま残ります）。")
+        if result.skipped_rows:
+            lines.append(f"会社名が空欄の {result.skipped_rows}行 は取り込みません。")
+        if result.duplicate_rows:
+            lines.append(f"ファイルの中で同じ会社名が {result.duplicate_rows}回 重なっていたので、1件にまとめました。")
+        overflow = merged_count - MAX_DESTINATION_HISTORY
+        if overflow > 0:
+            lines.append(f"★ 登録できる取引先は {MAX_DESTINATION_HISTORY}件 までのため、"
+                         f"古い履歴（または一覧の後ろのほう）から {overflow}件 は登録されません。")
+        lines.append("内容が違っている場合は「やめる」を押してください。")
+        lay.addWidget(wrapped_label("\n".join(lines), "Hint"))
+
+        headers = ["状態"] + [dest_import.FIELD_LABELS[f] for f in dest_import.FIELDS]
+        table = QTableWidget(len(result.entries), len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.NoSelection)
+        table.verticalHeader().setVisible(False)
+        for row, (entry, status) in enumerate(zip(result.entries, statuses)):
+            table.setItem(row, 0, QTableWidgetItem(dest_import.STATUS_LABELS[status]))
+            for col, field in enumerate(dest_import.FIELDS, start=1):
+                table.setItem(row, col, QTableWidgetItem(entry.get(field, "")))
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # 住所
+        lay.addWidget(table, 1)
+
+        ok_btn = QPushButton(f"取り込む（{len(result.entries)}件）")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(dlg.accept)
+        cancel_btn = QPushButton("やめる")
+        cancel_btn.clicked.connect(dlg.reject)
+        lay.addWidget(self._hbox(ok_btn, cancel_btn, stretch_at=0))
+        return dlg.exec() == QDialog.Accepted
 
     # ============================================================ 印鑑画像
     def choose_seal(self):

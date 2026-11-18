@@ -127,6 +127,34 @@ pythonw → auto install → Qt window, no console flashes. pip falls back
 to a --user install by itself if the global site-packages isn't
 writable (e.g. Python installed for all users).
 
+Importing recipients from Excel / CSV / text (dest_import.py)
+--------------------------------------------------------------
+"📥 ファイルから取り込む" (in ② 宛先 and in the 取引先の履歴を管理 dialog)
+reads a list of companies into cfg["destinations"] — the same list the
+name combo / autocomplete already uses. dest_import.py has no Qt in it,
+so it can be tested headless.
+  - .xlsx/.xlsm are read with zipfile + ElementTree, NOT openpyxl, on
+    purpose: the in-app updater only overwrites files and never runs pip,
+    so a new pip dependency would leave already-installed PCs unable to
+    import Excel. It reads the sheet that was active when saved, skips
+    furigana (<rPh>) runs, and handles shared/inline strings. Old binary
+    .xls is rejected with a "save as .xlsx or CSV" message.
+  - .csv/.txt: encoding tries UTF-16 (BOM; Excel "Unicode text"),
+    UTF-8(-sig), then cp932 (Japanese Excel's default CSV). Tab-separated
+    if any tab is present, otherwise comma.
+  - Columns: a header row (searched in the first 10 non-empty rows, so a
+    title row above is fine) is matched by keywords (会社/取引先/宛先…,
+    郵便/〒, 住所/所在地, 電話/TEL, FAX); multiple address columns
+    (住所1/住所2) are joined. No header → columns are taken positionally
+    as name, zip, address, tel, fax. A single-column header only counts if
+    it is exactly a header word (so "テスト会社" isn't eaten as a header).
+  - Merge: names already in the list keep their values where the file
+    cell is blank; imported entries go to the top. A preview dialog shows
+    new / updated / unchanged per row before anything is saved.
+  - MAX_DESTINATION_HISTORY went from 50 to 1000 — at 50, an imported list
+    would be truncated the next time a PDF was created
+    (_remember_current_destination slices to the max).
+
 Font / readability pass (PDF output)
 -------------------------------------
 Switched the embedded PDF font from IPAGothic to BIZ UDPGothic

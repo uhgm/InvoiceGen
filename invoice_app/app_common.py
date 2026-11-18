@@ -13,7 +13,7 @@ import shutil
 import sys
 import unicodedata
 
-APP_VERSION_NUM = "1.7"
+APP_VERSION_NUM = "1.8"
 APP_VERSION = f"Version {APP_VERSION_NUM}"
 APP_CREDIT = "ClaudeCord & uhgm"
 APP_SUPPORT_EMAIL = "satoshi2933@tokiwamatsu.net"
@@ -101,12 +101,16 @@ DEFAULT_CONFIG = {
         {"name": "", "branch": "", "code": "", "type": "普通", "number": ""},
     ],
     "last_save_dir": "",
+    "last_import_dir": "",  # 取引先の一覧ファイルを最後に取り込んだフォルダ
     "remarks_default": "",
     "doc_format": "standard",  # PDFの書式。"standard"＝モダン、"classic"＝以前のシステムと同じ書式
     "destinations": [],  # 過去に入力した取引先（宛先）の履歴。新しい順。
 }
 
-MAX_DESTINATION_HISTORY = 50  # 取引先履歴の保存件数の上限
+# 取引先履歴の保存件数の上限。v1.7 までは 50 件だったが、ファイルからまとめて
+# 取り込めるようにしたので増やした（50 のままだと、取り込んだ一覧が次にPDFを作ったときに
+# 50 件に切り詰められてしまう）。
+MAX_DESTINATION_HISTORY = 1000
 
 # PDFの書式（設定ファイルに保存する値 → 画面に出す名前）
 DOC_FORMAT_LABELS = {
@@ -284,6 +288,23 @@ HELP_TEXT = """【使い方ガイド】
      一度PDFを作成した取引先は、自動的にこの候補に追加されます。
      間違えて登録してしまったときは「取引先の履歴を管理」ボタンから
      削除できます。
+
+  Q. 取引先の一覧（Excel や CSV のファイル）をまとめて登録したい
+  A. 「② 宛先」の「📥 ファイルから取り込む」ボタンを押して、
+     一覧のファイルを選んでください。使えるファイルは次のとおりです。
+       ・Excel のファイル（.xlsx）… 開いたときに表示されるシートを読みます
+       ・CSV のファイル（.csv）
+       ・テキストのファイル（.txt）… 1行に1社の名前だけ、でも大丈夫です
+     1行目に「会社名」「郵便番号」「住所」「電話番号」「FAX」などの
+     見出しがあれば、その列を読み取ります（「取引先名」「TEL」なども可）。
+     見出しがなければ、左の列から順に 会社名・郵便番号・住所・
+     電話番号・FAX番号 として読み取ります。
+     取り込む前に、読み取った内容が一覧で表示されるので、
+     確認してから「取り込む」を押してください。
+     すでに登録されている取引先は、ファイルに入っている項目だけが
+     新しい内容に書き換わります。
+     古い形式の Excel ファイル（.xls）は読めないので、Excel で
+     「名前を付けて保存」から「Excel ブック（.xlsx）」で保存し直してください。
 
   Q. 領収証も発行したい
   A. 画面いちばん下の「🧾 領収証PDFを作成」ボタンを押すと、
