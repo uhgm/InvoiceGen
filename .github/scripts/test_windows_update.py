@@ -21,6 +21,10 @@ import sys
 import threading
 import urllib.request
 
+# 英語版Windowsでは画面出力が cp1252 になり、日本語を出せないので UTF-8 にする
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "..", "invoice_app")))
 import updater  # noqa: E402
