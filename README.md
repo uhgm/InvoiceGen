@@ -45,16 +45,22 @@ InvoiceGen/
    ├─ setup_guide_linux.txt         ← エンドユーザー向けセットアップ手順（Linux）
    ├─ make_release.py               ← 配布用ZIPを安全に作るスクリプト（開発者用）
    ├─ build_exe.bat / build_deb.sh  ← Windows用exe / Linux用.debのビルド（開発者用）
+   ├─ installer.iss                 ← Windows版インストーラーの設定（Inno Setup。開発者用）
    ├─ DEVELOPER_NOTES.txt           ← 開発者向けメモ（仕組みの詳細）
    └─ RELEASE_WORKFLOW.txt          ← 開発者向け：更新を配布する手順のチェックリスト
 ```
 
-配布用ZIP・exe・.debはリポジトリには含めず、GitHubのReleasesページに添付しています。
+配布用ZIP・インストーラー・.debはリポジトリには含めず、GitHubのReleasesページに添付しています。
 
 
 ## セットアップ
 
-Releasesページから `invoice_generator_tool.zip` をダウンロードして展開し、
+**Windows（かんたん）**：Releasesページから `invoice-generator-tool-windows-setup.exe` をダウンロードして開くだけです
+（Pythonのインストールは不要。デスクトップにアイコンができます）。
+署名していないので、初回は「WindowsによってPCが保護されました」と出ることがあります。
+そのときは「詳細情報」→「実行」を押してください。
+
+**Python版**：Releasesページから `invoice_generator_tool.zip` をダウンロードして展開し、
 `setup_guide.txt`（Linuxは `setup_guide_linux.txt`）の手順に沿って進めてください
 （Pythonのインストール → `01_setup.bat` を実行 → デスクトップにできたアイコンから起動、という流れです）。
 
@@ -65,6 +71,9 @@ Releasesページから `invoice_generator_tool.zip` をダウンロードして
 GitHubの**Releases機能**の「最新のRelease」情報を確認しに行き、
 添付された `invoice_generator_tool.zip` が今より新しいバージョンなら、
 ダウンロードして上書きします。
+Windows版（インストーラーで入れたexe）の場合は、添付された
+`invoice-generator-tool-windows-setup.exe` をダウンロードし（GitHubが付けているSHA-256で確認）、
+ツールを閉じて画面の質問なしで上書きインストールし、終わると自動でもう一度開きます（v1.9から）。
 署名検証やロールバックなどは実装していない、素朴な仕組みです
 （リポジトリへの書き込み権限を持つ人を限定する前提で運用しています）。
 
@@ -87,6 +96,7 @@ PDFや設定ファイルが残っていても配布ZIPには含まれません�
 3. `python make_release.py` を実行して配布用ZIPを作り直す
 4. GitHubの「Releases」→「Draft a new release」で新しいタグ（例：`v1.5`）を作り、
    変更点を本文に書いて、`invoice_generator_tool.zip` を添付して公開する
+5. Windows版のインストーラーは GitHub Actions が自動で作って添付する（「Actions」タブで緑になるのを確認）
 
 
 ## 使用技術

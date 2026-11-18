@@ -51,11 +51,17 @@ v1.2から、GitHubの「Releases」機能を使う方式に変更しました�
   ⑩ 完了。あとは事務所側で母上に
      「🔄 アップデート確認」ボタンを押してもらうだけ。
 
-  ※ Windows用exe（invoice-generator-tool-windows-x64.zip）は、⑨で公開すると
-     GitHub Actions が自動で作って同じReleaseに添付します（10分ほどかかります）。
+  ※ Windows版のインストーラー（invoice-generator-tool-windows-setup.exe）は、
+     ⑨で公開すると GitHub Actions が自動で作って同じReleaseに添付します（5分ほど）。
      リポジトリの「Actions」タブで「Windows exe ビルド」が緑になっていればOK。
+     緑になるまでの間に、Windows版（exe）で「🔄 アップデート確認」を押すと
+     「自動では更新できない」と出るので、緑になってから押してもらってください。
      作り直したいときは、Actions →「Windows exe ビルド」→「Run workflow」で
-     タグ（例： v1.7）を入れて実行してください。
+     タグ（例： v1.9）を入れて実行してください（v1.9より前のタグでは作れません）。
+
+  ※ Windows版（exe）を使っている人も、「🔄 アップデート確認」→「はい」で
+     新しいインストーラーを自動でダウンロードし、ツールを閉じて上書きインストールし、
+     終わると自動でもう一度開きます（v1.9から）。
 
 
 ----------------------------------------------------
@@ -68,6 +74,8 @@ v1.2から、GitHubの「Releases」機能を使う方式に変更しました�
 □ 変更点を本文に書いた
 □ invoice_generator_tool.zip を添付（Attach binaries）した
 □ 「Publish release」を押した
+□ 「Actions」タブの「Windows exe ビルド」が緑になり、Releaseに
+   invoice-generator-tool-windows-setup.exe が付いたのを確認した
 □ https://github.com/uhgm/InvoiceGen/releases/latest
    をブラウザで開いて、新しいバージョンが表示されているか確認した
 

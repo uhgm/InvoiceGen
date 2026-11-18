@@ -13,7 +13,7 @@ import shutil
 import sys
 import unicodedata
 
-APP_VERSION_NUM = "1.8"
+APP_VERSION_NUM = "1.9"
 APP_VERSION = f"Version {APP_VERSION_NUM}"
 APP_CREDIT = "ClaudeCord & uhgm"
 APP_SUPPORT_EMAIL = "satoshi2933@tokiwamatsu.net"
@@ -21,6 +21,8 @@ APP_SUPPORT_EMAIL = "satoshi2933@tokiwamatsu.net"
 # GitHubの「Releases」機能から、最新版の情報を自動取得するURL。
 # 詳しい手順（Releaseの出し方）は updater.py の一番上のコメントに書いてあります。
 UPDATE_MANIFEST_URL = "https://api.github.com/repos/uhgm/InvoiceGen/releases/latest"
+# 自動で更新できないときに案内する、最新版の配布ページ
+RELEASES_PAGE_URL = "https://github.com/uhgm/InvoiceGen/releases/latest"
 
 # ------------------------------------------------------------------
 # 起動フォルダ（この.pyファイル/ exe があるフォルダ）を基準にする

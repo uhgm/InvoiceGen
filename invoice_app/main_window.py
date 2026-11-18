@@ -18,9 +18,9 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QPalet
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QCompleter, QDateEdit,
     QDialog, QFileDialog, QFormLayout, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QSizePolicy, QSplitter, QSplitterHandle, QTableWidget, QTableWidgetItem,
-    QTextBrowser, QToolButton, QVBoxLayout, QWidget,
+    QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressDialog,
+    QPushButton, QScrollArea, QSizePolicy, QSplitter, QSplitterHandle, QTableWidget,
+    QTableWidgetItem, QTextBrowser, QToolButton, QVBoxLayout, QWidget,
 )
 
 import app_common as common
@@ -30,7 +30,7 @@ from app_common import (
     DATE_STYLE_LABELS, DOC_FORMAT_LABELS,
     DUMMY_BANKS, DUMMY_BUTTON_CLEAR, DUMMY_BUTTON_FILL, DUMMY_FIELDS, DUMMY_ITEMS, DUMMY_REMARKS,
     DUMMY_SEAL_PATH, DUMMY_STATUS_ACTIVE, DUMMY_STATUS_IDLE, HELP_TEXT, MAX_DESTINATION_HISTORY,
-    UPDATE_MANIFEST_URL, format_yen, load_config, normalize_number, parse_number, safe_filename,
+    RELEASES_PAGE_URL, UPDATE_MANIFEST_URL, format_yen, load_config, normalize_number, parse_number, safe_filename,
     save_config, to_reiwa,
 )
 
@@ -1245,16 +1245,21 @@ class MainWindow(QMainWindow):
             show_info(self, "お知らせ", f"お使いの{APP_VERSION}は最新です。")
             return
 
-        if getattr(sys, "frozen", False):
-            # exe/deb版は、ZIPを上書きする今の更新方式が使えない
-            # （フォルダの中身をまるごと入れ替える前提の仕組みのため）。
-            # 新しいインストーラーをダウンロードしてもらうよう案内する。
+        if updater.can_self_install() and info.get("installer_url"):
+            # Windows版（exe）：新しいインストーラーで上書きインストールする
+            self._update_with_installer(info, remote_v, notes)
+            return
+
+        if getattr(sys, "frozen", False) or not info.get("zip_url"):
+            # deb版（Linux）や、Releaseに必要なファイルが添付されていないときは、
+            # 自動では入れ替えられないので、配布ページを案内する。
             msg = f"新しいバージョン（{remote_v}）が公開されています。\n"
             if notes:
                 msg += f"\n【更新内容】\n{notes}\n"
-            msg += ("\nこの版（exe/deb）は自動更新に対応していないため、"
-                    "配布ページから新しいインストーラーをダウンロードして、入れ直してください。")
-            show_info(self, "新しいバージョンがあります", msg)
+            msg += ("\nこの版は自動では更新できないため、"
+                    "配布ページから新しい版をダウンロードして、入れ直してください。")
+            self._offer_release_page(QMessageBox.Information, "新しいバージョンがあります",
+                                     msg, info.get("page_url"))
             return
 
         msg = f"新しいバージョン（{remote_v}）が見つかりました。\n今すぐ更新しますか？"
@@ -1285,6 +1290,88 @@ class MainWindow(QMainWindow):
             "閉じたあと、もう一度デスクトップのアイコンから開き直してください。",
         )
         QApplication.quit()
+
+    def _update_with_installer(self, info, remote_v, notes):
+        """Windows版（exe）の更新：新しいインストーラーをダウンロードし、
+        このツールを閉じてから、画面の質問なしで上書きインストールする。
+        インストールが終わると、ツールは自動でもう一度開く（installer.iss の [Run]）。"""
+        import updater
+
+        msg = (f"新しいバージョン（{remote_v}）が見つかりました。\n今すぐ更新しますか？\n\n"
+               "更新するときは、このツールをいったん閉じます。\n"
+               "入力の途中なら「いいえ」を押して、PDFを作り終えてから更新してください。")
+        if notes:
+            msg += f"\n\n【更新内容】\n{notes}"
+        if not ask_yes_no(self, "アップデートがあります", msg):
+            return
+
+        dlg = QProgressDialog("新しいバージョンをダウンロードしています…", "やめる", 0, 100, self)
+        dlg.setWindowTitle("アップデート")
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(0)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setMinimumWidth(420)
+        dlg.setValue(0)
+        dlg.show()
+        QApplication.processEvents()
+
+        def progress(done, total):
+            if total:
+                dlg.setMaximum(100)
+                dlg.setValue(min(100, done * 100 // total))
+                dlg.setLabelText(
+                    "新しいバージョンをダウンロードしています…\n"
+                    f"{done / 1048576:.0f} MB / {total / 1048576:.0f} MB")
+            else:
+                dlg.setMaximum(0)  # 全体の大きさが分からないときは、動き続ける表示にする
+            QApplication.processEvents()
+            return not dlg.wasCanceled()
+
+        try:
+            path = updater.download_installer(
+                info["installer_url"], info.get("installer_size"),
+                info.get("installer_sha256"), progress)
+        except updater.UpdateCancelled:
+            dlg.close()
+            return
+        except updater.UpdateError as e:
+            dlg.close()
+            self._offer_release_page(
+                QMessageBox.Critical, "更新に失敗しました",
+                "新しいバージョンのダウンロードがうまくいきませんでした。\n"
+                "インターネットに接続されているかご確認のうえ、もう一度お試しください。\n"
+                "何度やってもうまくいかないときは、配布ページから入れ直すこともできます。\n\n"
+                f"（技術情報）{e}",
+                info.get("page_url"))
+            return
+        dlg.close()
+
+        show_info(
+            self, "更新の準備ができました",
+            "OKを押すと、このツールをいったん閉じて更新します。\n"
+            "更新が終わると、自動でもう一度開きます（1分ほどかかることがあります）。",
+        )
+        try:
+            updater.launch_installer(path)
+        except updater.UpdateError as e:
+            self._offer_release_page(
+                QMessageBox.Critical, "更新に失敗しました",
+                "更新を始められませんでした。\n"
+                "お手数ですが、配布ページから新しい版をダウンロードして、入れ直してください。\n\n"
+                f"（技術情報）{e}",
+                info.get("page_url"))
+            return
+        QApplication.quit()
+
+    def _offer_release_page(self, icon, title, text, page_url=None):
+        """メッセージに「配布ページを開く」ボタンを付けて出す。"""
+        choice = _message(self, icon, title, text, [
+            ("配布ページを開く", QMessageBox.AcceptRole),
+            ("閉じる", QMessageBox.RejectRole),
+        ])
+        if choice == 0:
+            QDesktopServices.openUrl(QUrl(page_url or RELEASES_PAGE_URL))
 
     # ============================================================ ダミーデータ（出力テスト用）
     def toggle_dummy_data(self):

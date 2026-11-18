@@ -1,16 +1,24 @@
 name: Windows exe ビルド
 
-# Windows用exe（invoice-generator-tool-windows-x64.zip）を、GitHubのWindowsマシンで作る。
+# Windows版のインストーラー（invoice-generator-tool-windows-setup.exe）を、GitHubのWindowsマシンで作る。
 # PyInstallerはクロスコンパイルできない（Windows用exeはWindows上でしか作れない）ので、
 # Mac/Linuxで開発していてもこのワークフローでWindows版を作れるようにしている。
-# 中身は build_exe.bat と同じ手順（pause などの対話部分を除いたもの）。
+#
+# 流れ：
+#   1. PyInstallerでexeを作り（build_exe.bat と同じ設定）、起動して画面が開くか確かめる
+#   2. Inno Setup（installer.iss）でインストーラーにまとめる
+#   3. インストールのテスト：新しく入れて、自動で開くか・デスクトップにアイコンができるか
+#   4. 更新のテスト：アプリが開いたまま、アプリの「🔄 アップデート確認」と同じ関数（updater.py）で
+#      ダウンロード → インストーラー起動 → 古いアプリが閉じる → 上書き → 自動で開き直す、まで確かめる
+#   5. Releaseのときだけ添付し、添付したものをアプリと同じ手順でダウンロードして確かめる
 #
 # いつ動くか：
-#   - Releaseを公開したとき → そのタグのコードでビルドし、そのReleaseに添付する
+#   - Releaseを公開したとき → そのタグのコードで作り、そのReleaseに添付する
 #   - 手動実行（Actions → 「Windows exe ビルド」→ Run workflow でタグを入力）
-#       → 指定したタグのコードでビルドし、そのReleaseに添付する（同名ファイルは上書き）
-#   - invoice_app を変更するPR → ビルドと起動テストだけ（Releaseには添付しない。
-#       できたZIPは、Actionsの実行画面の「Artifacts」からダウンロードできる）
+#       → 指定したタグのコードで作り直して添付する（同名ファイルは上書き）。
+#         installer.iss ができた v1.9 より前のタグでは作れない。
+#   - invoice_app などを変更するPR → 1〜4だけ（Releaseには添付しない。
+#       できたインストーラーは、Actionsの実行画面の「Artifacts」からダウンロードできる）
 
 on:
   release:
@@ -18,12 +26,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "ビルドしてReleaseに添付するタグ（例: v1.7）"
+        description: "ビルドしてReleaseに添付するタグ（例: v1.9）"
         required: true
   pull_request:
     paths:
       - "invoice_app/**"
       - ".github/workflows/build-windows-exe.yml"
+      - ".github/scripts/**"
 
 permissions:
   contents: write
@@ -35,7 +44,8 @@ jobs:
     env:
       # PRのときは空（＝Releaseには添付しない）
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
-      ASSET: invoice-generator-tool-windows-x64.zip
+      # この名前は installer.iss の OutputBaseFilename、updater.py の WINDOWS_INSTALLER_NAME と同じにする
+      INSTALLER: invoice-generator-tool-windows-setup.exe
     defaults:
       run:
         shell: pwsh
@@ -46,7 +56,6 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      # v1.6のexeと同じPython（3.14）でビルドする
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -89,21 +98,115 @@ jobs:
           if ($title -notlike $expected) { throw "Main window did not appear (window title: '$title')" }
           Write-Host "OK: main window opened after ${i}s"
 
-      # ZIPの中は invoice-generator-tool\ フォルダ1つ（exeと_internal\が入っている）。
-      # v1.6までの配布ZIPと同じ形。
-      - name: ZIPにまとめる
+      - name: Inno Setupを用意する
         run: |
-          python -c "import shutil; shutil.make_archive('invoice-generator-tool-windows-x64', 'zip', 'dist', 'invoice-generator-tool')"
-          Get-Item $env:ASSET | Select-Object Name, Length
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed" }
+            $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (-not $iscc) { throw "ISCC.exe not found" }
+          "ISCC=$($iscc.FullName)" >> $env:GITHUB_ENV
+          Write-Host "ISCC: $($iscc.FullName)"
 
-      - uses: actions/upload-artifact@v4
+      - name: インストーラーを作る
+        run: |
+          & $env:ISCC "/DAppVersion=$env:APP_VERSION_NUM" installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed (exit code $LASTEXITCODE)" }
+          Get-Item "dist/$env:INSTALLER" | Select-Object Name, Length
+
+      # インストールと、アプリの「🔄 アップデート確認」からの更新を、実際に通しで試す。
+      - name: インストールと更新のテスト
+        run: |
+          $installed = Join-Path $env:LOCALAPPDATA "Programs\InvoiceGeneratorTool\invoice-generator-tool.exe"
+          $expected = "*Version $env:APP_VERSION_NUM*"
+          $setup = (Resolve-Path "dist/$env:INSTALLER").Path
+
+          function Get-AppProcesses {
+            @(Get-Process -Name "invoice-generator-tool" -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $installed })
+          }
+          # インストールしたアプリの画面（タイトルに「Version x.y」）が開くまで待ち、そのプロセスを返す
+          function Wait-AppWindow([int]$timeoutSec, [int]$notPid = 0) {
+            for ($i = 0; $i -lt $timeoutSec; $i++) {
+              foreach ($p in Get-AppProcesses) {
+                if ($p.Id -ne $notPid -and $p.MainWindowTitle -like $expected) {
+                  Write-Host "  window '$($p.MainWindowTitle)' (pid $($p.Id)) after ${i}s"
+                  return $p
+                }
+              }
+              Start-Sleep -Seconds 1
+            }
+            throw "Installed app window did not appear within ${timeoutSec}s"
+          }
+          function Assert-LogSucceeded([string]$log) {
+            if (-not (Select-String -Path $log -Pattern "Installation process succeeded" -Quiet)) {
+              Get-Content $log -Tail 40
+              throw "Installer log does not say it succeeded: $log"
+            }
+          }
+
+          Write-Host "== 1. 新しくインストールする（/VERYSILENT）"
+          $log1 = Join-Path $env:RUNNER_TEMP "install1.log"
+          $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$log1" -PassThru
+          if (-not $p.WaitForExit(300000)) { throw "First install timed out" }
+          if ($p.ExitCode -ne 0) { Get-Content $log1 -Tail 40; throw "First install failed (exit code $($p.ExitCode))" }
+          Assert-LogSucceeded $log1
+          if (-not (Test-Path $installed)) { throw "Not installed at $installed" }
+          if (-not (Test-Path (Join-Path (Split-Path $installed) "_internal"))) { throw "_internal folder missing" }
+          Write-Host "  installed: $installed"
+
+          Write-Host "== 2. デスクトップのアイコンが、インストールしたexeを指しているか"
+          $shell = New-Object -ComObject WScript.Shell
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          $lnk = Get-ChildItem $desktop -Filter *.lnk | Where-Object { $shell.CreateShortcut($_.FullName).TargetPath -eq $installed }
+          if (-not $lnk) { throw "Desktop shortcut to $installed not found in $desktop" }
+          Write-Host "  shortcut: $($lnk.FullName)"
+
+          Write-Host "== 3. インストールが終わると、自動でアプリが開くか"
+          $old = Wait-AppWindow 90
+          $oldPid = $old.Id
+
+          Write-Host "== 4. アプリを開いたまま、アップデート確認と同じ手順で更新する"
+          python ../.github/scripts/test_windows_update.py --installer $setup --launch --log-out update_log.txt
+          if ($LASTEXITCODE -ne 0) { throw "Update test script failed" }
+          $log2 = (Get-Content update_log.txt -Raw).Trim()
+
+          Write-Host "== 5. 古いアプリが閉じられるか"
+          if (-not $old.WaitForExit(180000)) { throw "Old app (pid $oldPid) was not closed by the installer" }
+          Write-Host "  old app closed"
+
+          Write-Host "== 6. 上書きインストールが成功し、アプリが自動で開き直すか"
+          for ($i = 0; $i -lt 180 -and -not (Test-Path $log2); $i++) { Start-Sleep -Seconds 1 }
+          $new = Wait-AppWindow 180 $oldPid
+          for ($i = 0; $i -lt 60 -and -not (Select-String -Path $log2 -Pattern "Installation process succeeded" -Quiet); $i++) { Start-Sleep -Seconds 1 }
+          Assert-LogSucceeded $log2
+
+          Write-Host "== 7. アプリが二重に開いていないか"
+          Start-Sleep -Seconds 5
+          $procs = Get-AppProcesses
+          if ($procs.Count -ne 1) { throw "Expected exactly 1 app process after update, found $($procs.Count)" }
+          Stop-Process -Id $new.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "OK: install and update both work"
+
+      - uses: actions/upload-artifact@v7
         with:
-          name: invoice-generator-tool-windows-x64
-          path: invoice_app/${{ env.ASSET }}
+          name: invoice-generator-tool-windows-setup
+          path: invoice_app/dist/${{ env.INSTALLER }}
           retention-days: 14
 
       - name: Releaseに添付する
         if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload $env:TAG $env:ASSET --clobber --repo $env:GITHUB_REPOSITORY
+        run: gh release upload $env:TAG "dist/$env:INSTALLER" --clobber --repo $env:GITHUB_REPOSITORY
+
+      # アプリは「最新のRelease」の情報からインストーラーを名前で探し、GitHubが付けている
+      # SHA-256で確かめてからインストールする。添付したものがその手順で正しく取れるかを確かめる。
+      - name: 添付したインストーラーを、アプリと同じ手順でダウンロードして確かめる
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python ../.github/scripts/test_windows_update.py --installer "dist/$env:INSTALLER" --release-api-url "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:TAG"
+          if ($LASTEXITCODE -ne 0) { throw "Release asset check failed" }
