@@ -37,6 +37,7 @@ INCLUDE_FILES = [
     "invoice_generator.py",  # 起動用（PySide6 が無ければ自動で入れる）
     "app_common.py",
     "main_window.py",
+    "dest_import.py",  # 取引先の一覧ファイル（Excel・CSV・テキスト）の読み込み
     "pdf_builder.py",
     "updater.py",
     "requirements.txt",
