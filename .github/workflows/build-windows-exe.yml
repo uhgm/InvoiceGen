@@ -1,0 +1,109 @@
+name: Windows exe ビルド
+
+# Windows用exe（invoice-generator-tool-windows-x64.zip）を、GitHubのWindowsマシンで作る。
+# PyInstallerはクロスコンパイルできない（Windows用exeはWindows上でしか作れない）ので、
+# Mac/Linuxで開発していてもこのワークフローでWindows版を作れるようにしている。
+# 中身は build_exe.bat と同じ手順（pause などの対話部分を除いたもの）。
+#
+# いつ動くか：
+#   - Releaseを公開したとき → そのタグのコードでビルドし、そのReleaseに添付する
+#   - 手動実行（Actions → 「Windows exe ビルド」→ Run workflow でタグを入力）
+#       → 指定したタグのコードでビルドし、そのReleaseに添付する（同名ファイルは上書き）
+#   - invoice_app を変更するPR → ビルドと起動テストだけ（Releaseには添付しない。
+#       できたZIPは、Actionsの実行画面の「Artifacts」からダウンロードできる）
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "ビルドしてReleaseに添付するタグ（例: v1.7）"
+        required: true
+  pull_request:
+    paths:
+      - "invoice_app/**"
+      - ".github/workflows/build-windows-exe.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      # PRのときは空（＝Releaseには添付しない）
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      ASSET: invoice-generator-tool-windows-x64.zip
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: invoice_app
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      # v1.6のexeと同じPython（3.14）でビルドする
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: アプリのバージョンを確認（タグと一致しているか）
+        run: |
+          $m = Select-String -Path app_common.py -Pattern '^APP_VERSION_NUM = "(.+)"' | Select-Object -First 1
+          if (-not $m) { throw "APP_VERSION_NUM not found in app_common.py" }
+          $ver = $m.Matches[0].Groups[1].Value
+          "APP_VERSION_NUM=$ver" >> $env:GITHUB_ENV
+          if ($env:TAG -and "v$ver" -ne $env:TAG) {
+            throw "Tag $env:TAG does not match APP_VERSION_NUM $ver (bump app_common.py first)"
+          }
+          Write-Host "APP_VERSION_NUM=$ver TAG=$env:TAG"
+
+      - name: 必要なパッケージを入れる
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: PyInstallerでexeを作る（build_exe.bat と同じ設定）
+        run: pyinstaller --noconfirm --name invoice-generator-tool --onedir --windowed --add-data "assets;assets" invoice_generator.py
+
+      # 画面（タイトルに「Version x.y」が出るメインウィンドウ）が開くかを確かめる。
+      # 起動時にエラーになると、別のタイトルのエラー画面が出るか、すぐ終了するので失敗になる。
+      - name: 起動テスト（メイン画面が開くか）
+        run: |
+          $exe = "dist/invoice-generator-tool/invoice-generator-tool.exe"
+          $expected = "*Version $env:APP_VERSION_NUM*"
+          $p = Start-Process -FilePath $exe -PassThru
+          $title = ""
+          for ($i = 0; $i -lt 90; $i++) {
+            Start-Sleep -Seconds 1
+            $p.Refresh()
+            if ($p.HasExited) { throw "exe exited early (exit code $($p.ExitCode))" }
+            $title = $p.MainWindowTitle
+            if ($title -like $expected) { break }
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if ($title -notlike $expected) { throw "Main window did not appear (window title: '$title')" }
+          Write-Host "OK: main window opened after ${i}s"
+
+      # ZIPの中は invoice-generator-tool\ フォルダ1つ（exeと_internal\が入っている）。
+      # v1.6までの配布ZIPと同じ形。
+      - name: ZIPにまとめる
+        run: |
+          python -c "import shutil; shutil.make_archive('invoice-generator-tool-windows-x64', 'zip', 'dist', 'invoice-generator-tool')"
+          Get-Item $env:ASSET | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: invoice-generator-tool-windows-x64
+          path: invoice_app/${{ env.ASSET }}
+          retention-days: 14
+
+      - name: Releaseに添付する
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload $env:TAG $env:ASSET --clobber --repo $env:GITHUB_REPOSITORY

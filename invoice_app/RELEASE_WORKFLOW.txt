@@ -51,6 +51,12 @@ v1.2から、GitHubの「Releases」機能を使う方式に変更しました�
   ⑩ 完了。あとは事務所側で母上に
      「🔄 アップデート確認」ボタンを押してもらうだけ。
 
+  ※ Windows用exe（invoice-generator-tool-windows-x64.zip）は、⑨で公開すると
+     GitHub Actions が自動で作って同じReleaseに添付します（10分ほどかかります）。
+     リポジトリの「Actions」タブで「Windows exe ビルド」が緑になっていればOK。
+     作り直したいときは、Actions →「Windows exe ビルド」→「Run workflow」で
+     タグ（例： v1.7）を入れて実行してください。
+
 
 ----------------------------------------------------
 【チェックリスト（コピペして使ってください）】

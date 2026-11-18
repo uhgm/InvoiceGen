@@ -220,11 +220,21 @@ path and what the in-app updater uses (see the warning above).
     invoice-generator-tool_<version>_amd64.deb. PyInstaller doesn't
     cross-compile, so this can't be built for Windows from Linux or
     vice versa.
-  - Windows exe: run `build_exe.bat` on an actual Windows machine.
+  - Windows exe: built by GitHub Actions
+    (.github/workflows/build-windows-exe.yml) on a windows-latest
+    runner, so no Windows machine is needed. Publishing a Release builds
+    the exe from that tag and attaches invoice-generator-tool-windows-x64.zip
+    to it automatically; to (re)build for an existing tag, run the
+    workflow by hand (Actions → "Windows exe ビルド" → Run workflow, or
+    `gh workflow run build-windows-exe.yml -f tag=v1.x`). It fails on
+    purpose if the tag doesn't match APP_VERSION_NUM, and it launches
+    the exe and waits for the "Version x.y" main window before attaching
+    anything. PRs touching invoice_app/ run the build + launch test only.
+    The PyInstaller flags there must stay in sync with build_exe.bat,
+    which still works for building by hand on a Windows machine.
     Produces dist\invoice-generator-tool\ (a folder — ship the whole
     thing, not just the .exe, since PyInstaller's --onedir puts all the
-    DLLs/data in a sibling _internal\ folder). Zip that folder up
-    yourself for the release asset.
+    DLLs/data in a sibling _internal\ folder); the zip wraps that folder.
 
 Attach both to the GitHub Release alongside invoice_generator_tool.zip
 when you have them (`gh release upload v1.x <files...>` or drag them
