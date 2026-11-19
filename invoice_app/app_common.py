@@ -13,7 +13,7 @@ import shutil
 import sys
 import unicodedata
 
-APP_VERSION_NUM = "1.9"
+APP_VERSION_NUM = "1.10"
 APP_VERSION = f"Version {APP_VERSION_NUM}"
 APP_CREDIT = "ClaudeCord & uhgm"
 APP_SUPPORT_EMAIL = "satoshi2933@tokiwamatsu.net"
