@@ -712,7 +712,7 @@ def _draw_classic_header(c, title, message, data):
 
 
 def _draw_classic_issuer_block(c, x_left, x1, y_top, data):
-    """発行元（名称・住所・電話・FAX）を、見本と同じく右半分に左寄せで描く。
+    """発行元（名称・代表者・住所・電話・FAX）を、見本と同じく右半分に左寄せで描く。
     名称と電話・FAX番号は均等割り付け、印影はその上に大きく重ねる。
     描画後のy座標を返す。"""
     if not data.get("show_issuer_block", True):
@@ -723,6 +723,11 @@ def _draw_classic_issuer_block(c, x_left, x1, y_top, data):
 
     if data.get("issuer_name"):
         _draw_distributed(c, data["issuer_name"], x_left, x1, y, FONT_REGULAR, 13)
+        y -= line_h
+
+    # 代表者名は名称のすぐ下に（見本にはない項目だが、入力されていれば印字する）
+    if data.get("issuer_representative"):
+        _draw_fitted(c, data["issuer_representative"], x_left, y, x1 - x_left, FONT_REGULAR, 12)
         y -= line_h
 
     issuer_zip = data.get("issuer_zip", "")

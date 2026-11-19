@@ -637,6 +637,10 @@ class MainWindow(QMainWindow):
         form.addRow("領収日", self._hbox(self.receipt_date_edit, self.receipt_date_style, stretch=True))
         form.addRow("", self.receipt_reiwa_hint)
         self.receipt_note = QLineEdit("お品代")
+        self.receipt_note.setToolTip(
+            "領収証に「但し　〇〇として」と印字されます（「として」は入力不要です）。\n"
+            "「クラシック」書式では、見本どおり但し書きは印字されません。"
+        )
         form.addRow("但し書き（〜として）", self.receipt_note)
 
         self.form_layout.addStretch(1)
@@ -829,6 +833,17 @@ class MainWindow(QMainWindow):
             combo.currentIndexChanged.connect(self._schedule_preview)
         self.items_table.changed.connect(self._schedule_preview)
         self.banks_table.changed.connect(self._schedule_preview)
+        # 「⑦ 領収証」の欄（但し書き・領収日）は請求書には印字されないため、プレビューが
+        # 請求書のままだと入力しても何も変わらない。手で変更したら領収証のプレビューに切り替える。
+        self.receipt_note.textEdited.connect(self._show_receipt_preview)
+        self.receipt_same_check.clicked.connect(self._show_receipt_preview)
+        self.receipt_date_edit.dateChanged.connect(self._show_receipt_preview)
+        self.receipt_date_style.activated.connect(self._show_receipt_preview)
+
+    def _show_receipt_preview(self, *_):
+        if self.preview_group.checkedId() != 1:
+            self.preview_group.button(1).setChecked(True)
+            self._schedule_preview()
 
     def _schedule_preview(self, *_):
         if PDF_PREVIEW_AVAILABLE:
